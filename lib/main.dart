@@ -125,11 +125,26 @@ class MainApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       builder: (context, child) {
-        return Center(
-          child: SizedBox(
-            width: 390,
-            height: 844,
-            child: child,
+        return GestureDetector(
+          // 🔴 [แก้ไข] แตะพื้นที่ว่างตรงไหนก็ได้ในแอปเพื่อหุบคีย์บอร์ด (แก้ปัญหาบน iOS
+          // ที่ไม่มีปุ่ม "เสร็จ"/"Done" เหนือคีย์บอร์ดเหมือน Android)
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            final currentFocus = FocusScope.of(context);
+            // ถ้ากำลังแตะอยู่บนช่องกรอกข้อมูล (TextField) เอง ช่องนั้นจะขอ focus
+            // ไปแล้วก่อนโค้ดนี้ทำงาน ทำให้ hasPrimaryFocus เป็น true และจะไม่ถูกหุบ
+            // แต่ถ้าแตะพื้นที่ว่าง จะไม่มีอะไรขอ focus จึงหุบคีย์บอร์ดได้ตามต้องการ
+            if (!currentFocus.hasPrimaryFocus &&
+                currentFocus.focusedChild != null) {
+              currentFocus.focusedChild!.unfocus();
+            }
+          },
+          child: Center(
+            child: SizedBox(
+              width: 390,
+              height: 844,
+              child: child,
+            ),
           ),
         );
       },
