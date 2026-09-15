@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "2344674067",
+    "firebase_url": "https://aftersales-5c4b4-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "aftersales-5c4b4",
+    "storage_bucket": "aftersales-5c4b4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:2344674067:android:5a2904e4a064a49a70b0e6",
+        "android_client_info": {
+          "package_name": "com.example.after_sales"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9I_rU665uqlH1_eR9xnSa1frGnlS1Kjs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

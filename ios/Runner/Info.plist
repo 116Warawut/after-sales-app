@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>After Sales</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>after_sales</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<!-- 🔴 [แก้ไข] เดิมอนุญาตแนวนอนไว้ด้วย (LandscapeLeft/Right) ทั้งที่ทุกหน้าจอ
+	     ในแอปออกแบบมาสำหรับแนวตั้งอย่างเดียว ตัดออกให้เหลือแค่แนวตั้ง (ทั้งหัวตั้ง
+	     ปกติและกลับหัว) ให้ตรงกับที่ตั้งไว้ฝั่ง Flutter (SystemChrome.setPreferredOrientations
+	     ใน main.dart) และฝั่ง Android (android:screenOrientation="portrait") —
+	     ถ้าปล่อยให้ต่างกันแบบนี้ iPad จะยังหมุนเป็นแนวนอนได้อยู่ทั้งที่ตั้งใจล็อกไว้แล้ว -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>ต้องการสิทธิ์เข้าถึงคลังภาพเพื่อบันทึกรูปที่ดาวน์โหลด</string>
+
+	<!-- 🆕 [iOS] เพิ่มคำอธิบายสิทธิ์ที่ขาด — คู่กับ permission ฝั่ง Android ใน
+	     AndroidManifest.xml (CAMERA, RECORD_AUDIO, ACCESS_FINE_LOCATION) และ
+	     กล้อง/คลังภาพที่ image_picker กับ image_cropper ใช้ ถ้าไม่มี key พวกนี้
+	     iOS จะ crash แอปทันทีตอนโค้ดขอสิทธิ์ ไม่ใช่แค่ปฏิเสธเงียบๆ แบบ Android -->
+	<key>NSCameraUsageDescription</key>
+	<string>ต้องการสิทธิ์เข้าถึงกล้องเพื่อสแกน QR Code และถ่ายรูปประกอบงานซ่อม</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ต้องการสิทธิ์เข้าถึงคลังภาพเพื่อเลือกรูปประกอบงานซ่อมหรือรูปโปรไฟล์</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ต้องการสิทธิ์เข้าถึงไมโครโฟนเพื่อใช้งานการโทรด้วยเสียงระหว่างลูกค้าและช่าง</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ต้องการสิทธิ์เข้าถึงตำแหน่งเพื่อระบุพิกัดช่างและคำนวณเส้นทางไปหน้างาน</string>
+</dict>
+</plist>

@@ -1,0 +1,15 @@
+name = "aftersales-push-proxy"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets ที่ต้องตั้งด้วย `npx wrangler secret put <ชื่อ>` (ไม่ใส่ค่าจริงในไฟล์นี้):
+#   ONESIGNAL_REST_API_KEY   -> คีย์ OneSignal (ต้องหมุนใหม่ เพราะคีย์เก่ายังฝังอยู่ในเว็บ)
+#   APP_SHARED_SECRET        -> secret กันแอปนอกยิง endpoint เล่น (มีอยู่แล้ว)
+#   SENDGRID_API_KEY         -> มีอยู่แล้วจากฟีเจอร์ OTP
+#
+#   ชุดใหม่ที่ต้องเพิ่มสำหรับ LOGIN:
+#   FIREBASE_CLIENT_EMAIL    -> client_email จากไฟล์ service account .json
+#   FIREBASE_PRIVATE_KEY     -> private_key จากไฟล์ service account .json (ทั้งก้อน
+#                               รวม -----BEGIN PRIVATE KEY----- / -----END PRIVATE KEY-----)
+#   FIREBASE_DB_URL          -> https://aftersales-5c4b4-default-rtdb.asia-southeast1.firebasedatabase.app
