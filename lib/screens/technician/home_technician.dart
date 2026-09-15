@@ -102,7 +102,9 @@ class _TechnicianRootShellState extends State<TechnicianRootShell> {
             Navigator(
               key: _navigatorKeys[1],
               onGenerateRoute: (settings) => MaterialPageRoute(
-                builder: (_) => const RepairListPage(),
+                builder: (_) => RepairListPage(
+                  onBack: () => setState(() => _navIndex = 0),
+                ),
               ),
             ),
 

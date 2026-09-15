@@ -11,7 +11,8 @@ import 'package:after_sales/screens/shared/job_detail_ui.dart';
 // --- MAIN PAGE & STATE ---
 
 class RepairListAdminPage extends StatefulWidget {
-  const RepairListAdminPage({super.key});
+  final VoidCallback? onBack;
+  const RepairListAdminPage({super.key, this.onBack});
 
   @override
   State<RepairListAdminPage> createState() => _RepairListAdminPageState();
@@ -320,6 +321,7 @@ class _RepairListAdminPageState extends State<RepairListAdminPage> {
             _AdminFilterHeader(
               totalTickets: _allItems.length,
               selectedTab: _selectedTab,
+              onBack: widget.onBack,
               onTabChanged: (tab) {
                 setState(() {
                   _selectedTab = tab;
@@ -912,11 +914,13 @@ class _AdminFilterHeader extends StatelessWidget {
   final int totalTickets;
   final AdminFilterTab selectedTab;
   final ValueChanged<AdminFilterTab> onTabChanged;
+  final VoidCallback? onBack;
 
   const _AdminFilterHeader({
     required this.totalTickets,
     required this.selectedTab,
     required this.onTabChanged,
+    this.onBack,
   });
 
   @override
@@ -933,32 +937,65 @@ class _AdminFilterHeader extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              // 🐛 [แก้บัค] เดิม Row นี้ใช้ crossAxisAlignment.start แล้วดัน
+              // Column [หัวข้อ, จำนวนรายการ] ลงด้วย Padding top:12 เพื่อให้ตรงกับ
+              // ปุ่มลูกศรแบบเก่า (IconButton เริ่มต้นที่มี padding ~8 รอบไอคอน)
+              // แต่พอเปลี่ยนปุ่มมาเป็นวงกลม 40x40 ไม่มี padding แล้ว ค่า offset เดิม
+              // ไม่ตรงกันอีกต่อไป ทำให้ลูกศรลอยอยู่เหนือข้อความหัวข้อ — เปลี่ยนมาให้
+              // ปุ่มลูกศรกับข้อความหัวข้อ "รายการซ่อมทั้งหมด" อยู่ใน Row เดียวกันแบบ
+              // center-align ตรง ๆ (อยู่บรรทัดเดียวกันเป๊ะไม่ว่าปุ่มจะสูงเท่าไหร่)
+              // แล้วย้ายบรรทัดจำนวนรายการลงมาอยู่บรรทัดถัดไป เยื้องซ้ายให้ตรงกับ
+              // ข้อความหัวข้อ (56 = ความกว้างปุ่ม 40 + ช่องว่าง 4 + padding ซ้ายเดิม
+              // ของ Row 12)
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () => Navigator.of(context).maybePop(),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'รายการซ่อมทั้งหมด',
-                          style: AppStyles.historySectionTitle,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '$totalTickets รายการทั้งหมด',
-                          style: AppStyles.historyMeta,
-                        ),
-                      ],
+                // 🐛 [แก้บัค] เดิมปุ่มนี้เรียก Navigator.of(context).maybePop() ตรง ๆ
+                // แต่หน้านี้ถูกเปิดเป็นแท็บล่างของแอป (IndexedStack + Navigator แยก
+                // ต่อแท็บใน home_admin.dart) ซึ่งเป็น route แรกสุดของ Navigator ของ
+                // แท็บนั้นเสมอ ทำให้ maybePop() คืนค่า false เฉย ๆ กดแล้วไม่มีอะไร
+                // เกิดขึ้นทุกครั้ง — เปลี่ยนให้รับ onBack callback จาก home_admin.dart
+                // มาสลับกลับไปแท็บหน้าแรกแทน และเปลี่ยนหน้าตาปุ่มให้เหมือนปุ่มย้อนกลับ
+                // ใน AppHeader (widgets.dart) ที่ใช้ในหน้าโปรไฟล์ — ใช้แพทเทิร์นเดียว
+                // กับ _CustomerFilterHeader ใน history_customer.dart
+                Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  clipBehavior: Clip.hardEdge,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 40, minHeight: 40),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      if (onBack != null) {
+                        onBack!();
+                      } else {
+                        Navigator.of(context).maybePop();
+                      }
+                    },
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: Colors.white,
+                      size: 20,
                     ),
                   ),
                 ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'รายการซ่อมทั้งหมด',
+                    style: AppStyles.historySectionTitle,
+                  ),
+                ),
               ],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Padding(
+            padding: const EdgeInsets.only(left: 56),
+            child: Text(
+              '$totalTickets รายการทั้งหมด',
+              style: AppStyles.historyMeta,
             ),
           ),
           const SizedBox(height: 14),

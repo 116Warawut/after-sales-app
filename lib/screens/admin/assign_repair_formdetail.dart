@@ -9,6 +9,7 @@ import 'package:after_sales/services.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:after_sales/screens/admin/admin_tracking.dart';
+import 'package:after_sales/utils/firebase_number.dart';
 
 /// 📌 Enum สำหรับจัดการสถานะงานซ่อม (ตรงตามมาตรฐานระบบ)
 enum RepairStatus {
@@ -336,8 +337,8 @@ class _AssignRepairFormDetailPageState
           address: repairRow['location']?.toString() ??
               repairRow['address']?.toString() ??
               '-',
-          destLat: (repairRow['dest_lat'] as num?)?.toDouble(),
-          destLng: (repairRow['dest_lng'] as num?)?.toDouble(),
+          destLat: toDoubleOrNull(repairRow['dest_lat']),
+          destLng: toDoubleOrNull(repairRow['dest_lng']),
           appointmentDate: repairRow['date']?.toString() ?? '-',
           appointmentTime: timeStr,
           images: imageList,

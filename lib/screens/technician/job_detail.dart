@@ -93,7 +93,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
       }
 
       final customer = await db.DatabaseHelper.instance.getCustomerProfile(
-        (repair['customer_username'] as String?) ?? '',
+        toStringOrNull(repair['customer_username']) ?? '',
       );
 
       List<String> imageList = [];
@@ -109,9 +109,9 @@ class _JobDetailPageState extends State<JobDetailPage> {
       }
 
       // 🕒 ดึงวันและเวลานัดหมายมาประกอบกัน
-      final dateStr = (repair['date'] as String?) ?? '-';
-      final timeStr = (repair['appointment_time'] as String?) ??
-          (repair['time'] as String?) ??
+      final dateStr = toStringOrNull(repair['date']) ?? '-';
+      final timeStr = toStringOrNull(repair['appointment_time']) ??
+          toStringOrNull(repair['time']) ??
           '';
       final appointmentDisplay = (timeStr.isNotEmpty && dateStr != '-')
           ? '$dateStr เวลา $timeStr น.'
@@ -121,35 +121,34 @@ class _JobDetailPageState extends State<JobDetailPage> {
       setState(() {
         _job = CustomerJobInfo(
           id: toIntOrNull(repair['id']),
-          ticketId: (repair['ticketNo'] as String?) ?? '-',
+          ticketId: toStringOrNull(repair['ticketNo']) ?? '-',
           machineCode: toIntOrNull(repair['machine_id'])?.toString() ??
-              (repair['machine_id'] as String?) ??
+              toStringOrNull(repair['machine_id']) ??
               '-',
-          modelName: (repair['machine'] as String?) ?? '-',
-          description: (repair['detail'] as String?) ?? '-',
-          status: (repair['status'] as String?) ?? 'รอจัดสรรช่าง',
+          modelName: toStringOrNull(repair['machine']) ?? '-',
+          description: toStringOrNull(repair['detail']) ?? '-',
+          status: toStringOrNull(repair['status']) ?? 'รอจัดสรรช่าง',
           customerName: customer != null
               ? '${customer['name'] ?? ''} ${customer['surname'] ?? ''}'.trim()
               : '-',
-          customerPhone: customer?['phone'] as String? ?? '-',
-          address: (repair['location'] as String?) ?? '-',
+          customerPhone: toStringOrNull(customer?['phone']) ?? '-',
+          address: toStringOrNull(repair['location']) ?? '-',
           appointmentDate: appointmentDisplay,
-          adminName: (repair['admin_name'] as String?) ?? 'ยังไม่มีแอดมินดูแล',
-          adminCode: (repair['admin_code'] as String?) ?? '-',
-          adminPhone: (repair['admin_phone'] as String?) ?? '-',
+          adminName: toStringOrNull(repair['admin_name']) ?? 'ยังไม่มีแอดมินดูแล',
+          adminCode: toStringOrNull(repair['admin_code']) ?? '-',
+          adminPhone: toStringOrNull(repair['admin_phone']) ?? '-',
           technicianName: '-',
           technicianCode: '-',
           technicianPhone: '-',
           images: imageList,
-          billId: (repair['bill_id'] as String?) ?? '-',
-          totalPrice: (repair['total_price'] as num?)?.toDouble() ?? 0,
+          billId: toStringOrNull(repair['bill_id']) ?? '-',
+          totalPrice: toDoubleOrNull(repair['total_price']) ?? 0,
           isPaid: toIntOrNull(repair['is_paid']) == 1 ||
               repair['is_paid'] == true,
         );
-        _customerUsername = (repair['customer_username'] as String?) ?? '';
-        _adminUsername = (repair['admin_username'] as String?) ?? '';
-        final estimatedPrice =
-            (repair['estimated_price'] as num?)?.toDouble() ?? 0;
+        _customerUsername = toStringOrNull(repair['customer_username']) ?? '';
+        _adminUsername = toStringOrNull(repair['admin_username']) ?? '';
+        final estimatedPrice = toDoubleOrNull(repair['estimated_price']) ?? 0;
         _priceController.text =
             estimatedPrice > 0 ? estimatedPrice.toStringAsFixed(0) : '';
         _loading = false;

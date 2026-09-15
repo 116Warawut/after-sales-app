@@ -37,3 +37,8 @@ double? toDoubleOrNull(dynamic v) {
 
 /// เหมือน [toDoubleOrNull] แต่คืนค่า [fallback] แทน null เมื่อแปลงไม่ได้
 double toDoubleOr(dynamic v, double fallback) => toDoubleOrNull(v) ?? fallback;
+
+/// แปลงค่า dynamic จาก Firebase ให้เป็น String แบบปลอดภัย
+/// กันเคสที่ field ที่ปกติเป็น String (เช่น ticketNo, status, เบอร์โทร) ถูกเก็บ
+/// เป็น int/num มาจากบาง record แล้วโดน `as String?` โยน error เช่นกัน
+String? toStringOrNull(dynamic v) => v?.toString();

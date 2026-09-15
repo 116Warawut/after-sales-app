@@ -9,15 +9,25 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/widgets.dart';
 
 /// หน้า "รายละเอียดงาน" ฝั่งลูกค้า
-// 🔴 [แก้ไข] แปลงค่าจาก Firebase เป็น int แบบปลอดภัย เพราะบางเครื่อง/บางแพลตฟอร์ม (เช่น iOS)
-// อาจได้ค่ากลับมาเป็น String (เช่น "18") แทนที่จะเป็น int (18) โดยตรง ทำให้ `as int?`
-// แบบเดิม throw error "type 'String' is not a subtype of type 'int?'"
-int? _toInt(dynamic v) {
+// 🔴 [แก้ไข] แปลงค่าจาก Firebase แบบปลอดภัย เพราะบางเครื่อง/บางแพลตฟอร์ม (เช่น iOS)
+// อาจได้ค่ากลับมาเป็นคนละชนิดจากที่คาดไว้ (เช่น String "18" แทน int 18 หรือ int แทน String)
+// ทำให้ `as int?` / `as String?` แบบเดิม throw TypeError กลางฟังก์ชัน _loadJob() ทำให้
+// setState() ที่เซ็ตข้อมูลจริงไม่ถูกเรียกเลย หน้าจึงค้างที่ placeholder "ไม่พบข้อมูล"
+// ทั้งที่ข้อมูลถูกกรอกและถูกบันทึกลงฐานข้อมูลไว้แล้ว
+int? _asInt(dynamic v) {
   if (v == null) return null;
   if (v is int) return v;
   if (v is num) return v.toInt();
   return int.tryParse(v.toString());
 }
+
+double? _asDouble(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString());
+}
+
+String? _asString(dynamic v) => v?.toString();
 
 class CustomerJobDetail extends StatelessWidget {
   final int? repairId;
@@ -170,21 +180,21 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
       }
 
       final customer = await db.DatabaseHelper.instance.getCustomerProfile(
-        (repair['customer_username'] as String?) ?? '',
+        _asString(repair['customer_username']) ?? '',
       );
 
       String technicianName = 'ยังไม่มีการมอบหมายช่าง';
       String technicianCode = '-';
       String technicianPhone = '-';
-      final techUsername = repair['technician_username'] as String?;
+      final techUsername = _asString(repair['technician_username']);
       if (techUsername != null && techUsername.isNotEmpty) {
         final tech = await db.DatabaseHelper.instance.getTechnicianByUsername(
           techUsername,
         );
         if (tech != null) {
-          technicianName = (tech['tech_name'] as String?) ?? techUsername;
-          technicianCode = (tech['employee_id'] as String?) ?? '-';
-          technicianPhone = (tech['phone'] as String?) ?? '-';
+          technicianName = _asString(tech['tech_name']) ?? techUsername;
+          technicianCode = _asString(tech['employee_id']) ?? '-';
+          technicianPhone = _asString(tech['phone']) ?? '-';
         }
       }
 
@@ -200,21 +210,21 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
         imageList = rawImages.map((e) => e.toString()).toList();
       }
 
-      final totalPrice = (repair['total_price'] as num?)?.toDouble() ?? 0;
-      final billId = (repair['bill_id'] as String?) ?? '-';
-      final isPaid = ((repair['is_paid'] as num?)?.toInt() ?? 0) == 1 || repair['is_paid'] == true;
-      final paymentSlipUrl = repair['customer_payment_slip'] as String?;
+      final totalPrice = _asDouble(repair['total_price']) ?? 0;
+      final billId = _asString(repair['bill_id']) ?? '-';
+      final isPaid = (_asInt(repair['is_paid']) ?? 0) == 1 || repair['is_paid'] == true;
+      final paymentSlipUrl = _asString(repair['customer_payment_slip']);
 
       // อ่านค่าคะแนนและความคิดเห็น
-      final ratingStars = (repair['rating_stars'] as num?)?.toInt() ??
-          (repair['rating'] as num?)?.toInt();
-      final ratingComment = (repair['rating_comment'] as String?) ??
-          (repair['review'] as String?) ??
-          (repair['customer_comment'] as String?);
+      final ratingStars = _asInt(repair['rating_stars']) ??
+          _asInt(repair['rating']);
+      final ratingComment = _asString(repair['rating_comment']) ??
+          _asString(repair['review']) ??
+          _asString(repair['customer_comment']);
 
-      final dateStr = (repair['date'] as String?) ?? '-';
-      final timeStr = (repair['appointment_time'] as String?) ??
-          (repair['time'] as String?) ??
+      final dateStr = _asString(repair['date']) ?? '-';
+      final timeStr = _asString(repair['appointment_time']) ??
+          _asString(repair['time']) ??
           '';
       final appointmentDisplay = (timeStr.isNotEmpty && dateStr != '-')
           ? '$dateStr เวลา $timeStr น.'
@@ -223,23 +233,23 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
       if (!mounted) return;
       setState(() {
         _job = CustomerJobInfo(
-          id: _toInt(repair['id']),
-          ticketId: (repair['ticketNo'] as String?) ?? '-',
-          machineCode: _toInt(repair['machine_id'])?.toString() ??
-              (repair['machine_id'] as String?) ??
+          id: _asInt(repair['id']),
+          ticketId: _asString(repair['ticketNo']) ?? '-',
+          machineCode: _asInt(repair['machine_id'])?.toString() ??
+              _asString(repair['machine_id']) ??
               '-',
-          modelName: (repair['machine'] as String?) ?? '-',
-          description: (repair['detail'] as String?) ?? '-',
-          status: (repair['status'] as String?) ?? '-',
+          modelName: _asString(repair['machine']) ?? '-',
+          description: _asString(repair['detail']) ?? '-',
+          status: _asString(repair['status']) ?? '-',
           customerName: customer != null
               ? '${customer['name'] ?? ''} ${customer['surname'] ?? ''}'.trim()
               : '-',
-          customerPhone: customer?['phone'] as String? ?? '-',
-          address: (repair['location'] as String?) ?? '-',
+          customerPhone: _asString(customer?['phone']) ?? '-',
+          address: _asString(repair['location']) ?? '-',
           appointmentDate: appointmentDisplay,
-          adminName: (repair['admin_name'] as String?) ?? 'ยังไม่มีแอดมินดูแล',
-          adminCode: (repair['admin_code'] as String?) ?? '-',
-          adminPhone: (repair['admin_phone'] as String?) ?? '-',
+          adminName: _asString(repair['admin_name']) ?? 'ยังไม่มีแอดมินดูแล',
+          adminCode: _asString(repair['admin_code']) ?? '-',
+          adminPhone: _asString(repair['admin_phone']) ?? '-',
           technicianName: technicianName,
           technicianCode: technicianCode,
           technicianPhone: technicianPhone,
@@ -252,7 +262,7 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
           ratingComment: ratingComment,
         );
         _paid = isPaid;
-        _adminUsername = (repair['admin_username'] as String?) ?? '';
+        _adminUsername = _asString(repair['admin_username']) ?? '';
         _technicianUsername = techUsername ?? '';
         _loading = false;
       });

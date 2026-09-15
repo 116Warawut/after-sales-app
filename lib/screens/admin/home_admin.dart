@@ -126,7 +126,9 @@ class _AdminRootShellState extends State<AdminRootShell> {
             Navigator(
               key: _navigatorKeys[1],
               onGenerateRoute: (settings) => MaterialPageRoute(
-                builder: (_) => const RepairListAdminPage(),
+                builder: (_) => RepairListAdminPage(
+                  onBack: () => setState(() => _navIndex = 0),
+                ),
               ),
             ),
 

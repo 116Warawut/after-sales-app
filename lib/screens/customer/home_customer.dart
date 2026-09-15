@@ -185,7 +185,9 @@ class _RootShellState extends State<RootShell> {
               Navigator(
                 key: _navigatorKeys[1],
                 onGenerateRoute: (settings) => MaterialPageRoute(
-                  builder: (tabContext) => const HistoryCustomer(),
+                  builder: (tabContext) => HistoryCustomer(
+                    onBack: () => setState(() => _navIndex = 0),
+                  ),
                 ),
               ),
 

@@ -579,9 +579,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
 class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    // 🐛 [แก้บัค] เอาปุ่มย้อนกลับออกจากหน้าโปรไฟล์ลูกค้าโดยเฉพาะ (ตามที่ขอ) —
+    // หน้านี้เป็นแท็บล่างของแอป (root ของ Navigator เฉพาะแท็บ) ปุ่มย้อนกลับเดิม
+    // จึงไม่มีความหมายอยู่แล้วด้วย ไม่แตะหน้าโปรไฟล์ของแอดมิน/ช่าง
     return const AppHeader(
       title: 'โปรไฟล์',
-      showBack: true,
+      showBack: false,
       trailing: ProfileSettingsButton(),
     );
   }
