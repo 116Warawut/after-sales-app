@@ -196,21 +196,40 @@ class DatabaseHelper {
     await _root.child('$table/$trimmed').remove();
   }
 
-  Future<Map<String, dynamic>?> _byId(String table, dynamic id) async {
-    if (id == null) return null;
-    final key = _k(id);
-    if (key.isEmpty) return null;
-    final snap = await _root.child('$table/$key').get();
-    if (!snap.exists || snap.value == null) return null;
-    final row = Map<String, dynamic>.from(snap.value as Map);
-    row['_fbKey'] = key;
-    row['id'] ??= key;
-    if (table == 'repairs') {
-      row['status'] = getEffectiveRepairStatus(row);
+  // คัดลอกไปวางแทนที่ฟังก์ชัน _byId เดิมใน lib/services.dart
+Future<Map<String, dynamic>?> _byId(String table, dynamic id) async {
+  if (id == null) return null;
+  final key = _k(id);
+  if (key.isEmpty) return null;
+
+  // 1. ลองค้นหาด้วยคีย์ปกติ (เช่น k37)
+  DataSnapshot snap = await _root.child('$table/$key').get();
+
+  // 2. ถ้าไม่พบ ให้ลองสลับรูปแบบคีย์ (ตัด 'k' ออก หรือเติม 'k' เข้าไป)
+  if (!snap.exists || snap.value == null) {
+    final rawId = id.toString().trim();
+    final altKey = (rawId.startsWith('k') || rawId.startsWith('K'))
+        ? rawId.substring(1)
+        : 'k$rawId';
+    
+    snap = await _root.child('$table/$altKey').get();
+    
+    // 3. ถ้ายังไม่พบอีก ให้ลองค้นหาด้วยรหัสเดิมแบบตรงๆ
+    if (!snap.exists || snap.value == null) {
+      snap = await _root.child('$table/$rawId').get();
     }
-    return row;
   }
 
+  if (!snap.exists || snap.value == null) return null;
+  
+  final row = Map<String, dynamic>.from(snap.value as Map);
+  row['_fbKey'] = snap.key ?? key;
+  row['id'] ??= snap.key ?? key;
+  if (table == 'repairs') {
+    row['status'] = getEffectiveRepairStatus(row);
+  }
+  return row;
+}
   Future<List<Map<String, dynamic>>> _all(String table) async {
     final snap = await _root.child(table).get();
     if (!snap.exists || snap.value == null) return [];

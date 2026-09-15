@@ -4,6 +4,7 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/screens/admin/admin_create_invoice.dart';
 import 'package:after_sales/screens/customer/payment.dart';
 import 'package:after_sales/widgets.dart';
+import 'package:after_sales/utils/firebase_number.dart';
 
 /// ใบแจ้งหนี้ — แปลงจาก row จริงของตาราง `repairs` ที่มีการออกบิลแล้ว
 /// (มี bill_id ไม่ว่าง)
@@ -22,7 +23,11 @@ class Invoice {
 
   factory Invoice.fromMap(Map<String, dynamic> map) {
     return Invoice(
-      repairId: (map['id'] as num?)?.toInt() ?? 0,
+      // 🐛 [แก้บัค] เดิมอ่าน map['id'] ตรง ๆ ซึ่งอาจไม่ตรงกับคีย์จริงใน Firebase
+      // ของ record นี้ ทำให้กดเข้าไปหน้าชำระเงินแล้วเปิดไปเจอใบงานคนละใบ —
+      // ใช้ resolveRecordId() ที่ยึดคีย์จริงเป็นหลักแทน (ดูเหตุผลใน
+      // utils/firebase_number.dart)
+      repairId: resolveRecordId(map) ?? 0,
       id: (map['bill_id'] as String?) ?? '-',
       date: (map['invoice_date'] as String?) ??
           (map['date'] as String?) ??

@@ -170,7 +170,11 @@ class Ticket {
     final isAdminUrgent = map['is_urgent'] == true || map['is_urgent'] == 1;
 
     return Ticket(
-      id: toIntOrNull(map['id']),
+      // 🐛 [แก้บัค] เดิมอ่าน map['id'] ตรง ๆ ซึ่งอาจไม่ตรงกับคีย์จริงใน Firebase
+      // ของ record นี้ ทำให้กดเข้าไปดูรายละเอียดแล้วเปิดไปเจอ record คนละใบ —
+      // ใช้ resolveRecordId() ที่ยึดคีย์จริงเป็นหลักแทน (ดูเหตุผลใน
+      // utils/firebase_number.dart)
+      id: resolveRecordId(map),
       ticketNo: (map['ticketNo'] as String?) ?? '#AS-${map['id'] ?? ''}',
       status: TicketStatusX.fromDbStatus(rawStatus),
       device: (map['machine'] as String?) ?? '-',

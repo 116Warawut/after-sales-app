@@ -7,6 +7,7 @@ import 'package:after_sales/services.dart';
 
 import 'package:after_sales/screens/admin/assign_repair_formdetail.dart';
 import 'package:after_sales/screens/shared/job_detail_ui.dart';
+import 'package:after_sales/utils/firebase_number.dart';
 
 // --- MAIN PAGE & STATE ---
 
@@ -647,7 +648,12 @@ class RepairListItem {
         status != RepairStatus.cancelled;
 
     return RepairListItem(
-      id: (map['id'] as num?)?.toInt() ?? 0,
+      // 🐛 [แก้บัค] เดิมอ่าน map['id'] ตรง ๆ ซึ่งอาจไม่ตรงกับคีย์จริงใน Firebase
+      // ของ record นี้ (เช่น record ที่ถูกแก้ไขข้อมูลย้อนหลัง) ทำให้กดเข้าไปดู
+      // รายละเอียดแล้วเปิดไปเจอ record คนละใบที่บังเอิญมีคีย์ตรงกับ field 'id'
+      // (ข้อมูลว่างเปล่า/ไม่ตรงกับที่เห็นในรายการ) — ใช้ resolveRecordId() ที่ยึด
+      // คีย์จริงเป็นหลักแทน ให้ตรงกับ record ที่แสดงในรายการเป๊ะ ๆ
+      id: resolveRecordId(map) ?? 0,
       fbKey: (map['_fbKey'] as String?),
       ticketId: map['ticketNo'] ?? map['ticket_no'] ?? '# AS-0000',
       customerName:

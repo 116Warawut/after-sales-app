@@ -38,6 +38,29 @@ double? toDoubleOrNull(dynamic v) {
 /// เหมือน [toDoubleOrNull] แต่คืนค่า [fallback] แทน null เมื่อแปลงไม่ได้
 double toDoubleOr(dynamic v, double fallback) => toDoubleOrNull(v) ?? fallback;
 
+/// 🐛 [แก้บัค] แปลง Map ที่ได้จาก Firebase ให้เป็น "id" สำหรับใช้เปิดหน้ารายละเอียด/
+/// นำทางต่อ โดยยึด "คีย์จริงใน Firebase" (map['_fbKey'] เช่น "k37") เป็นหลักก่อน
+/// เสมอ แล้วค่อย fallback ไปใช้ field 'id' ที่เก็บอยู่ข้างในตัว record เอง
+///
+/// เหตุผล: ปกติ field 'id' ข้างในควรตรงกับคีย์จริงเป๊ะ ๆ อยู่แล้ว แต่บาง record
+/// (เช่น ถูกแก้ไขข้อมูลย้อนหลัง/นำเข้าจากที่อื่น) field 'id' อาจไม่ตรงกับคีย์จริง
+/// ของตัวเอง — ถ้าเผลอเอา field 'id' (ผิด) ไปต่อคีย์ใหม่ตอนเปิดหน้ารายละเอียด
+/// จะพาไปเปิด record คนละใบที่บังเอิญมีคีย์นั้นอยู่จริง (เช่น record เปล่า ๆ)
+/// แทนที่จะเปิด record จริงของงานนั้น — ให้ทุกจุดที่สร้าง item จาก Firebase map
+/// (RepairListItem, Ticket ฯลฯ) ใช้ฟังก์ชันนี้แทนการอ่าน map['id'] ตรง ๆ
+int? resolveRecordId(Map<String, dynamic> map) {
+  final fbKey = map['_fbKey']?.toString().trim();
+  if (fbKey != null && fbKey.isNotEmpty) {
+    final digitsOnly =
+        (fbKey.startsWith('k') || fbKey.startsWith('K'))
+            ? fbKey.substring(1)
+            : fbKey;
+    final fromKey = int.tryParse(digitsOnly);
+    if (fromKey != null) return fromKey;
+  }
+  return toIntOrNull(map['id']);
+}
+
 /// แปลงค่า dynamic จาก Firebase ให้เป็น String แบบปลอดภัย
 /// กันเคสที่ field ที่ปกติเป็น String (เช่น ticketNo, status, เบอร์โทร) ถูกเก็บ
 /// เป็น int/num มาจากบาง record แล้วโดน `as String?` โยน error เช่นกัน
