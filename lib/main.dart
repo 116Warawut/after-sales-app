@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 
@@ -139,13 +140,28 @@ class MainApp extends StatelessWidget {
               currentFocus.focusedChild!.unfocus();
             }
           },
-          child: Center(
-            child: SizedBox(
-              width: 390,
-              height: 844,
-              child: child,
-            ),
-          ),
+          // 🔴 [แก้ไข] เจอบั๊ก: เดิม child ถูกครอบด้วย SizedBox ขนาดตายตัว 390x844
+          // (ขนาดจอ iPhone 12/13 mini) แล้ว Center ไว้กลางจอเสมอ ไม่ว่าอุปกรณ์จริง
+          // จะมีขนาดเท่าไหร่ก็ตาม พอเจอเครื่อง iOS รุ่นที่จอสูงกว่า 844pt (เช่น
+          // iPhone 14/15/16 ทั่วไปและรุ่น Pro/Pro Max ซึ่งเป็นรุ่นส่วนใหญ่ที่ขายอยู่
+          // ตอนนี้) กล่องขนาดตายตัวจะเล็กกว่าจอจริง เกิดแถบดำ (Letterboxing) ทั้ง
+          // ขอบบนและขอบล่างตามที่เจอ และทำให้ปุ่มย้อนกลับ/องค์ประกอบที่อิง
+          // MediaQuery.padding.top (Safe Area จริงของอุปกรณ์) ไปอยู่ผิดตำแหน่ง
+          // เพราะเนื้อหาถูกเลื่อนลงมาจากขอบจอจริงไปแล้วชั้นหนึ่งจาก Center ครอบอีกที
+          //
+          // ครอบด้วยกรอบขนาดตายตัวแบบนี้มีประโยชน์แค่ตอนรัน Flutter Web (ให้ดู
+          // เหมือนพรีวิวแอปมือถือตอนเปิดในเบราว์เซอร์คอมพิวเตอร์) จึงจำกัดให้ทำงาน
+          // เฉพาะ kIsWeb เท่านั้น ส่วนแอปมือถือจริง (iOS/Android) ให้ child เต็มจอ
+          // ตามขนาดอุปกรณ์จริงเสมอ ไม่ล็อกเป็น 390x844 อีกต่อไป
+          child: kIsWeb
+              ? Center(
+                  child: SizedBox(
+                    width: 390,
+                    height: 844,
+                    child: child,
+                  ),
+                )
+              : child,
         );
       },
       home: initialHome,
