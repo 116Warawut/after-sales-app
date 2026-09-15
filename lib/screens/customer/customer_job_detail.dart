@@ -9,6 +9,16 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/widgets.dart';
 
 /// หน้า "รายละเอียดงาน" ฝั่งลูกค้า
+// 🔴 [แก้ไข] แปลงค่าจาก Firebase เป็น int แบบปลอดภัย เพราะบางเครื่อง/บางแพลตฟอร์ม (เช่น iOS)
+// อาจได้ค่ากลับมาเป็น String (เช่น "18") แทนที่จะเป็น int (18) โดยตรง ทำให้ `as int?`
+// แบบเดิม throw error "type 'String' is not a subtype of type 'int?'"
+int? _toInt(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString());
+}
+
 class CustomerJobDetail extends StatelessWidget {
   final int? repairId;
   const CustomerJobDetail({super.key, this.repairId});
@@ -213,9 +223,11 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
       if (!mounted) return;
       setState(() {
         _job = CustomerJobInfo(
-          id: repair['id'] as int?,
+          id: _toInt(repair['id']),
           ticketId: (repair['ticketNo'] as String?) ?? '-',
-          machineCode: (repair['machine_id'] as int?)?.toString() ?? '-',
+          machineCode: _toInt(repair['machine_id'])?.toString() ??
+              (repair['machine_id'] as String?) ??
+              '-',
           modelName: (repair['machine'] as String?) ?? '-',
           description: (repair['detail'] as String?) ?? '-',
           status: (repair['status'] as String?) ?? '-',

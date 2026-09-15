@@ -6,6 +6,7 @@ import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/screens/customer/customer_job_detail.dart';
 import 'package:after_sales/screens/customer/history_customer.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -168,7 +169,7 @@ class Ticket {
     final isAdminUrgent = map['is_urgent'] == true || map['is_urgent'] == 1;
 
     return Ticket(
-      id: map['id'] as int?,
+      id: toIntOrNull(map['id']),
       ticketNo: (map['ticketNo'] as String?) ?? '#AS-${map['id'] ?? ''}',
       status: TicketStatusX.fromDbStatus(rawStatus),
       device: (map['machine'] as String?) ?? '-',

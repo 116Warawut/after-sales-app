@@ -252,7 +252,7 @@ class _AdminSparePartPageState extends State<AdminSparePartPage>
 
     // เช็กสต๊อกจริง ณ ตอนนี้ก่อนตัด กันกรณีสต๊อกเปลี่ยนไปหลังช่างส่งคำขอ
     final part = await DatabaseHelper.instance.getSparePartById(partId);
-    final currentStock = (part?['stock'] as int?) ?? 0;
+    final currentStock = _asInt(part?['stock']) ?? 0;
     if (currentStock < quantity) {
       _showSnack(
         'สต๊อก "$partName" เหลือไม่พอ (มี $currentStock, ขอเบิก $quantity)',

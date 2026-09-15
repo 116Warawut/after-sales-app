@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:after_sales/app_styles.dart';
 
@@ -206,7 +207,7 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
   /// ➕ เพิ่มอะไหล่จากคำขอเบิก 1 รายการเข้าไปในบิล แล้วมาร์กว่า "ออกบิลแล้ว"
   /// กันไม่ให้ถูกดึงมาเสนอซ้ำในบิลใบอื่นทีหลัง
   Future<void> _addPartRequestToInvoice(Map<String, dynamic> request) async {
-    final requestId = (request['id'] as num).toInt();
+    final requestId = toIntOr(request['id'], 0);
     final partId = (request['part_id'] as num?)?.toInt();
     final quantity = (request['quantity'] as num?)?.toInt() ?? 1;
     final unitPrice =

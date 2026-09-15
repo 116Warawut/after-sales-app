@@ -9,6 +9,7 @@ import 'package:after_sales/common_bottom_navbar.dart';
 import 'package:after_sales/enums/user_role.dart';
 import 'package:after_sales/screens/shared/chat_list_page.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -275,7 +276,7 @@ class _NextJobPageState extends State<NextJobPage> {
           }
         }
         job = NextJob(
-          repairId: nextRow['id'] as int,
+          repairId: toIntOr(nextRow['id'], 0),
           ticketId: (nextRow['ticketNo'] as String?) ?? '-',
           company: company,
           machine: (nextRow['machine'] as String?) ?? '-',
@@ -332,7 +333,7 @@ class _NextJobPageState extends State<NextJobPage> {
         }
 
         todayJobs.add(TodayJobItem(
-          repairId: r['id'] as int,
+          repairId: toIntOr(r['id'], 0),
           time: (time != null && time.isNotEmpty) ? time : null,
           machine: (r['machine'] as String?) ?? '-',
           company: companyToday,

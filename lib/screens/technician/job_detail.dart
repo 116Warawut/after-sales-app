@@ -10,6 +10,7 @@ import 'package:after_sales/screens/technician/customer_tracking.dart';
 import 'package:after_sales/screens/technician/report.dart';
 import 'package:after_sales/screens/technician/spare_part_tec_viewer.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 
 /// {@template jobs_detail}
@@ -119,9 +120,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
       if (!mounted) return;
       setState(() {
         _job = CustomerJobInfo(
-          id: repair['id'] as int?,
+          id: toIntOrNull(repair['id']),
           ticketId: (repair['ticketNo'] as String?) ?? '-',
-          machineCode: (repair['machine_id'] as int?)?.toString() ?? '-',
+          machineCode: toIntOrNull(repair['machine_id'])?.toString() ??
+              (repair['machine_id'] as String?) ??
+              '-',
           modelName: (repair['machine'] as String?) ?? '-',
           description: (repair['detail'] as String?) ?? '-',
           status: (repair['status'] as String?) ?? 'รอจัดสรรช่าง',
@@ -140,7 +143,8 @@ class _JobDetailPageState extends State<JobDetailPage> {
           images: imageList,
           billId: (repair['bill_id'] as String?) ?? '-',
           totalPrice: (repair['total_price'] as num?)?.toDouble() ?? 0,
-          isPaid: (repair['is_paid'] as int?) == 1,
+          isPaid: toIntOrNull(repair['is_paid']) == 1 ||
+              repair['is_paid'] == true,
         );
         _customerUsername = (repair['customer_username'] as String?) ?? '';
         _adminUsername = (repair['admin_username'] as String?) ?? '';

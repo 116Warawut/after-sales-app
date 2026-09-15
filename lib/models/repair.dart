@@ -1,3 +1,5 @@
+import 'package:after_sales/utils/firebase_number.dart';
+
 class Repair {
   final int? id;
   final String? ticketNo;
@@ -71,17 +73,20 @@ class Repair {
   //   );
   // }
 
-  // ⭐ [แก้ไข] AFTER: แปลงค่าจาก Firebase แบบปลอดภัยและรองรับข้อมูลเก่า
+  // ⭐ [แก้ไข] AFTER 2: เปลี่ยนไปใช้ toIntOrNull/toDoubleOrNull (lib/utils/
+  // firebase_number.dart) แทน `as num?` ตรง ๆ อีกชั้น เพราะพบว่าบาง record
+  // (โดยเฉพาะที่เจอ error ฝั่ง iOS) เก็บ id/machine_id/is_paid เป็น String
+  // (เช่น "18") ไม่ใช่ num เลย ซึ่ง `as num?` เดิมก็ยัง throw เหมือนกัน
   factory Repair.fromJson(Map<String, dynamic> json) {
     return Repair(
-      id: (json['id'] as num?)?.toInt(),
+      id: toIntOrNull(json['id']),
       ticketNo: json['ticketNo']?.toString(),
       customerUsername: json['customer_username']?.toString(),
       technicianUsername: json['technician_username']?.toString(),
       adminUsername: json['admin_username']?.toString(),
       adminName: json['admin_name']?.toString(),
       adminCode: json['admin_code']?.toString(),
-      machineId: (json['machine_id'] as num?)?.toInt(),
+      machineId: toIntOrNull(json['machine_id']),
       machine: json['machine']?.toString(),
       date: json['date']?.toString(),
       location: json['location']?.toString(),
@@ -89,9 +94,9 @@ class Repair {
       detail: json['detail']?.toString(),
       reportSummary: json['report_summary']?.toString(),
       billId: json['bill_id']?.toString(),
-      totalPrice: (json['total_price'] as num?)?.toDouble() ?? 0.0,
-      isPaid: (json['is_paid'] as num?)?.toInt() ?? 0,
-      progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
+      totalPrice: toDoubleOr(json['total_price'], 0.0),
+      isPaid: toIntOr(json['is_paid'], 0),
+      progress: toDoubleOr(json['progress'], 0.0),
       createdAt: json['created_at']?.toString(),
     );
   }

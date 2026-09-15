@@ -2,6 +2,7 @@ import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/screens/customer/customer_job_detail.dart';
 import 'package:after_sales/screens/customer/repair_form.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:flutter/material.dart';
 import 'machine_models.dart';
@@ -387,7 +388,8 @@ class _MachineDetailPageState extends State<MachineDetailPage> {
                                                     builder: (context) =>
                                                         CustomerJobDetailPage(
                                                       repairId:
-                                                          row['id'] as int,
+                                                          toIntOrNull(
+                                                              row['id']),
                                                     ),
                                                   ),
                                                 );

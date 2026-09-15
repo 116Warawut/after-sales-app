@@ -14,6 +14,7 @@ import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/enums/user_role.dart';
 import 'package:after_sales/screens/chat_screen.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 
 class ChatListPage extends StatefulWidget {
@@ -97,7 +98,7 @@ class _ChatListPageState extends State<ChatListPage> {
 
       final rooms = <_ChatRoomPreview>[];
       for (final repair in repairs) {
-        final id = repair['id'] as int?;
+        final id = toIntOrNull(repair['id']);
         if (id == null) continue;
 
         final last = await dbHelper.getLastChatMessage(id);

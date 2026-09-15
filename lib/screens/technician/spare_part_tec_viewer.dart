@@ -1,6 +1,7 @@
 import 'package:after_sales/app_styles.dart';
 import 'package:flutter/material.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 
 // ==========================================
@@ -26,9 +27,9 @@ class PartItem {
   });
 
   factory PartItem.fromMap(Map<String, dynamic> map) {
-    final stock = (map['stock'] as int?) ?? 0;
+    final stock = toIntOr(map['stock'], 0);
     return PartItem(
-      id: map['id'] as int,
+      id: toIntOr(map['id'], 0),
       partName: (map['part_name'] as String?) ?? '-',
       partCode: (map['part_code'] as String?) ?? '-',
       stock: stock,

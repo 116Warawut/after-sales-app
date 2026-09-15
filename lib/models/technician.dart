@@ -1,4 +1,5 @@
 import 'package:after_sales/app_styles.dart';
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:flutter/material.dart';
 
 class Technician {
@@ -48,9 +49,9 @@ class Technician {
     // หาก Firebase ส่งค่าเป็น double หรือ String
     // final isBusyValue = isBusyOverride ? 1 : (map['is_busy'] as int? ?? 0);
 
-    // ⭐ [แก้ไข] AFTER: แปลงค่าตัวเลขจาก Firebase แบบปลอดภัย
-    final isBusyValue =
-        isBusyOverride ? 1 : (map['is_busy'] as num?)?.toInt() ?? 0;
+    // ⭐ [แก้ไข] AFTER 2: เปลี่ยนไปใช้ toIntOrNull (lib/utils/firebase_number.dart)
+    // แทน `as num?` ตรง ๆ เพราะ 'is_busy' บาง record อาจเก็บมาเป็น String ก็ได้
+    final isBusyValue = isBusyOverride ? 1 : (toIntOrNull(map['is_busy']) ?? 0);
 
     String roleFormatted;
     if (roleStr.contains('แอร์')) {
@@ -68,12 +69,12 @@ class Technician {
     final codeStr = map['employee_id']?.toString() ?? map['code']?.toString();
 
     return Technician(
-      id: (map['id'] as num?)?.toInt(),
+      id: toIntOrNull(map['id']),
       username: map['username']?.toString() ?? 'unknown_$index',
       name: nameStr,
       code: (codeStr != null && codeStr.isNotEmpty)
           ? 'รหัส: $codeStr'
-          : 'รหัส: ${3661051541100 + ((map['id'] as num?)?.toInt() ?? index)}',
+          : 'รหัส: ${3661051541100 + (toIntOrNull(map['id']) ?? index)}',
       role: roleFormatted,
       isBusy: isBusyValue,
       initials: generateInitials(nameStr),
