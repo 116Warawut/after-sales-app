@@ -179,5 +179,5 @@ class MainApp extends StatelessWidget {
         '/profile': (context) => const UserProfilePage(),
       },
     );
-  }
+   }
 }
