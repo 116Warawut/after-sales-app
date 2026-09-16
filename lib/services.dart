@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 import 'package:firebase_database/firebase_database.dart';
 import 'package:after_sales/push_notification_service.dart';
 import 'package:after_sales/utils/serial_number.dart';
+import 'package:after_sales/debug_log.dart'; // 🔴 [ชั่วคราว-Debug]
 // ignore: depend_on_referenced_packages
 import 'package:bcrypt/bcrypt.dart' as bcrypt;
 
@@ -197,38 +198,104 @@ class DatabaseHelper {
   }
 
   // คัดลอกไปวางแทนที่ฟังก์ชัน _byId เดิมใน lib/services.dart
+  //
+  // 🔴 [แก้ไข] BEFORE: เดิมเดา key รูปแบบ "k<เลข>" ได้แค่ 3 แบบ (k37 / 37 /
+  // รหัสดิบ) ถ้า record จริงถูกสร้างด้วยคีย์คนละรูปแบบ (เช่น ฝั่งเว็บแอดมิน
+  // React/Vite อาจใช้ Firebase push() key แบบสุ่ม เช่น "-OxAbC123" แทนที่จะ
+  // เป็น "k<เลข>" แบบที่แอป Flutter ฝั่งนี้สร้าง) ทั้ง 3 แบบจะหาไม่เจอเลย แล้ว
+  // คืนค่า null แบบเงียบๆ (ไม่มี error ให้เห็น) ทำให้หน้ารายละเอียดงาน/แชท
+  // ที่เรียก getRepairById() ต่อ ขึ้นเป็น placeholder "-" ทั้งหน้า ทั้งที่ข้อมูล
+  // จริงมีอยู่และแสดงถูกต้องในหน้ารายการ (ซึ่งอ่านทั้งตารางด้วย _all() ไม่ได้
+  // เดา key เลยไม่เจอปัญหานี้)
+  //
+  // AFTER: ถ้าเดา key 3 แบบแล้วยังไม่เจอ ให้ fallback สแกนทั้งตาราง (เหมือนที่
+  // หน้ารายการใช้) แล้วเทียบ "คีย์จริง" หรือ field 'id' ภายใน record แทน
+  // รับประกันว่าถ้า record เจอในหน้ารายการได้ ก็ต้องเจอในหน้ารายละเอียดได้ด้วย
 Future<Map<String, dynamic>?> _byId(String table, dynamic id) async {
   if (id == null) return null;
   final key = _k(id);
   if (key.isEmpty) return null;
+  final rawId = id.toString().trim();
 
-  // 1. ลองค้นหาด้วยคีย์ปกติ (เช่น k37)
-  DataSnapshot snap = await _root.child('$table/$key').get();
+  DataSnapshot snap;
+  try {
+    // 1. ลองค้นหาด้วยคีย์ปกติ (เช่น k37)
+    snap = await _root.child('$table/$key').get();
+    DebugLog.add('_byId($table,$id): ลอง key="$key" -> exists=${snap.exists}');
 
-  // 2. ถ้าไม่พบ ให้ลองสลับรูปแบบคีย์ (ตัด 'k' ออก หรือเติม 'k' เข้าไป)
-  if (!snap.exists || snap.value == null) {
-    final rawId = id.toString().trim();
-    final altKey = (rawId.startsWith('k') || rawId.startsWith('K'))
-        ? rawId.substring(1)
-        : 'k$rawId';
-    
-    snap = await _root.child('$table/$altKey').get();
-    
-    // 3. ถ้ายังไม่พบอีก ให้ลองค้นหาด้วยรหัสเดิมแบบตรงๆ
+    // 2. ถ้าไม่พบ ให้ลองสลับรูปแบบคีย์ (ตัด 'k' ออก หรือเติม 'k' เข้าไป)
     if (!snap.exists || snap.value == null) {
-      snap = await _root.child('$table/$rawId').get();
+      final altKey = (rawId.startsWith('k') || rawId.startsWith('K'))
+          ? rawId.substring(1)
+          : 'k$rawId';
+
+      snap = await _root.child('$table/$altKey').get();
+      DebugLog.add(
+          '_byId($table,$id): ลอง altKey="$altKey" -> exists=${snap.exists}');
+
+      // 3. ถ้ายังไม่พบอีก ให้ลองค้นหาด้วยรหัสเดิมแบบตรงๆ
+      if (!snap.exists || snap.value == null) {
+        snap = await _root.child('$table/$rawId').get();
+        DebugLog.add(
+            '_byId($table,$id): ลอง rawId="$rawId" -> exists=${snap.exists}');
+      }
     }
+  } catch (e) {
+    // เช่น permission-denied จาก Security Rules — เดิมไม่ได้ catch ตรงนี้เลย
+    DebugLog.add('_byId($table,$id): EXCEPTION ตอนอ่านด้วย key ตรงๆ: $e');
+    snap = await _dummyMissingSnapshot();
   }
 
-  if (!snap.exists || snap.value == null) return null;
-  
-  final row = Map<String, dynamic>.from(snap.value as Map);
-  row['_fbKey'] = snap.key ?? key;
-  row['id'] ??= snap.key ?? key;
-  if (table == 'repairs') {
-    row['status'] = getEffectiveRepairStatus(row);
+  if (snap.exists && snap.value != null) {
+    final row = Map<String, dynamic>.from(snap.value as Map);
+    row['_fbKey'] = snap.key ?? key;
+    row['id'] ??= snap.key ?? key;
+    if (table == 'repairs') {
+      row['status'] = getEffectiveRepairStatus(row);
+    }
+    return row;
   }
-  return row;
+
+  // 4. Fallback: เดา key ตรงๆ ไม่เจอเลย — สแกนทั้งตาราง (เหมือน _all()) แล้ว
+  // เทียบคีย์จริง หรือ field 'id' ภายใน record แทน กันเคส key คนละรูปแบบ
+  try {
+    final allSnap = await _root.child(table).get();
+    if (allSnap.exists && allSnap.value is Map) {
+      for (final entry in (allSnap.value as Map).entries) {
+        final v = entry.value;
+        if (v is! Map) continue;
+        final keyStr = entry.key.toString();
+        final candidate = Map<String, dynamic>.from(v);
+        final fieldIdStr = candidate['id']?.toString();
+        final matches = keyStr == rawId ||
+            keyStr == key ||
+            keyStr == 'k$rawId' ||
+            fieldIdStr == rawId;
+        if (matches) {
+          candidate['_fbKey'] = keyStr;
+          candidate['id'] ??= keyStr;
+          if (table == 'repairs') {
+            candidate['status'] = getEffectiveRepairStatus(candidate);
+          }
+          DebugLog.add(
+              '_byId($table,$id): เจอผ่าน fallback สแกนทั้งตาราง (key จริง="$keyStr")');
+          return candidate;
+        }
+      }
+    }
+    DebugLog.add(
+        '_byId($table,$id): fallback สแกนทั้งตารางแล้วก็ไม่เจอ (ไม่มี record นี้จริงๆ หรือ key ไม่ตรงกันเลยสักแบบ)');
+  } catch (e) {
+    DebugLog.add('_byId($table,$id): EXCEPTION ตอน fallback สแกนทั้งตาราง: $e');
+  }
+  return null;
+}
+
+// helper เล็กๆ สำหรับ branch exception ด้านบน — คืนค่า snapshot ที่ไม่ exists
+Future<DataSnapshot> _dummyMissingSnapshot() async {
+  final ref = FirebaseDatabase.instance
+      .ref('__debug_nonexistent_path_${DateTime.now().microsecondsSinceEpoch}');
+  return ref.get();
 }
   Future<List<Map<String, dynamic>>> _all(String table) async {
     final snap = await _root.child(table).get();

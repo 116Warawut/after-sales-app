@@ -18,6 +18,7 @@ import 'package:after_sales/push_notification_service.dart';
 import 'package:after_sales/session_storage.dart';
 import 'package:after_sales/app_styles.dart';
 import 'package:flutter/services.dart';
+import 'package:after_sales/debug_log.dart'; // 🔴 [ชั่วคราว-Debug]
 
 StreamSubscription? _callSubscription;
 
@@ -171,15 +172,24 @@ class MainApp extends StatelessWidget {
           // เหมือนพรีวิวแอปมือถือตอนเปิดในเบราว์เซอร์คอมพิวเตอร์) จึงจำกัดให้ทำงาน
           // เฉพาะ kIsWeb เท่านั้น ส่วนแอปมือถือจริง (iOS/Android) ให้ child เต็มจอ
           // ตามขนาดอุปกรณ์จริงเสมอ ไม่ล็อกเป็น 390x844 อีกต่อไป
-          child: kIsWeb
-              ? Center(
-                  child: SizedBox(
-                    width: 390,
-                    height: 844,
-                    child: child,
-                  ),
-                )
-              : child,
+          child: Stack(
+            children: [
+              kIsWeb
+                  ? Center(
+                      child: SizedBox(
+                        width: 390,
+                        height: 844,
+                        child: child!,
+                      ),
+                    )
+                  : child!,
+              // 🔴 [ชั่วคราว-Debug] ปุ่ม 🐛 ลอยทุกหน้าจอ กดดู log ของ _byId()
+              // (Firebase lookup attempts) โดยไม่ต้องต่อ Xcode — ลบทิ้งได้เมื่อ
+              // debug เสร็จแล้ว พร้อมไฟล์ lib/debug_log.dart และจุดที่เรียกใน
+              // services.dart
+              const DebugLogButton(),
+            ],
+          ),
         );
       },
       // 🔴 [ชั่วคราว-Debug] แสดง error ตอน startup เป็นแบนเนอร์สีแดงคลุมทับหน้าจอ
@@ -247,8 +257,8 @@ class _StartupErrorOverlay extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Row(
-                        children: [
+                      Row(
+                        children: const [
                           Icon(Icons.warning_amber_rounded, color: Colors.white),
                           SizedBox(width: 8),
                           Expanded(
