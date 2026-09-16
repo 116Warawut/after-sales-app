@@ -52,7 +52,10 @@ DateComparison compareAppointmentDate(String? dateStr) {
 
 /// คำนวณสถานะที่แท้จริงของงานซ่อมตามวันที่นัดหมายอัตโนมัติ
 String getEffectiveRepairStatus(Map<String, dynamic> repair) {
-  final rawStatus = (repair['status'] as String?)?.trim() ?? 'รอจัดสรรช่าง';
+  // ⭐ [แก้ไข] เดิมใช้ `as String?` ตรง ๆ ถ้า record ไหนเก็บ status เป็นชนิดอื่น
+  // (หรือเป็น num) จะ throw กลางทาง ทำให้ทั้งฟังก์ชันที่เรียกพังตามไปด้วย
+  final rawStatusRaw = repair['status']?.toString().trim() ?? '';
+  final rawStatus = rawStatusRaw.isEmpty ? 'รอจัดสรรช่าง' : rawStatusRaw;
 
   if (rawStatus == 'มีปัญหา' ||
       rawStatus.contains('ปัญหา') ||
@@ -212,6 +215,41 @@ class DatabaseHelper {
     await _root.child('$table/$trimmed').remove();
   }
 
+  // ===========================================================================
+  // 🍎 [แก้บัค iOS] ตัวแปลงข้อมูลดิบจาก Firebase -> Map<String, dynamic>
+  // ---------------------------------------------------------------------------
+  // สาเหตุ: ฝั่ง iOS ปลั๊กอิน firebase_database ส่งค่ากลับมาจาก NSDictionary
+  // ทำให้ snapshot.value เป็น Map<Object?, Object?> และ "คีย์" ที่ได้ไม่ใช่ Dart
+  // String เสมอไป (บางคีย์ถูกส่งกลับมาเป็น Object ที่ .toString() แล้วตรง แต่
+  // เทียบ == กับ String ไม่ตรง) การใช้ Map<String, dynamic>.from() จึงได้ Map ที่
+  // "มีข้อมูลอยู่จริง" แต่พอค้นด้วย row['ticketNo'] กลับได้ null ทุกช่อง
+  // -> อาการคือหน้ารายละเอียดขึ้น "-" ทุกช่อง ทั้งที่ exists = true
+  //
+  // วิธีแก้: ไล่ copy ทีละคีย์ด้วย key.toString() เองแทน (และทำซ้ำชั้นลูกด้วย)
+  // ใช้ตัวนี้แทน Map<String, dynamic>.from() ทุกจุดที่อ่านค่าจาก Firebase
+  static Map<String, dynamic> normalizeRow(Object? raw) {
+    final out = <String, dynamic>{};
+    if (raw is Map) {
+      raw.forEach((k, v) {
+        out[k.toString()] = _normalizeValue(v);
+      });
+    }
+    return out;
+  }
+
+  static dynamic _normalizeValue(Object? v) {
+    if (v is Map) return normalizeRow(v);
+    if (v is List) return v.map(_normalizeValue).toList();
+    return v;
+  }
+
+  /// เช็กว่า record ที่อ่านมา "มีเนื้อข้อมูลจริง" หรือเป็นแค่โครงเปล่า
+  /// (มีแต่ id / _fbKey / status ที่เราเติมเองทีหลัง)
+  static bool _rowHasContent(Map<String, dynamic> row) {
+    const meta = {'id', '_fbKey', 'status'};
+    return row.keys.any((k) => !meta.contains(k));
+  }
+
   /// ค้นหาข้อมูลตาม ID โดยค้นหาได้ทั้ง Key ตรง, รูปแบบสลับ k, ตัวเลขล้วน และสแกนค้นหาด้วย ticketNo
   Future<Map<String, dynamic>?> _byId(String table, dynamic id) async {
     if (id == null) return null;
@@ -258,13 +296,25 @@ class DatabaseHelper {
     }
 
     if (snap.exists && snap.value != null && snap.value is Map) {
-      final row = Map<String, dynamic>.from(snap.value as Map);
-      row['_fbKey'] = snap.key ?? key;
-      row['id'] ??= snap.key ?? key;
-      if (table == 'repairs') {
-        row['status'] = getEffectiveRepairStatus(row);
+      // 🍎 [แก้บัค iOS] ใช้ normalizeRow แทน Map<String, dynamic>.from()
+      final row = normalizeRow(snap.value);
+      DebugLog.add(
+          '_byId($table,$id): อ่านตรงได้ ${row.length} ฟิลด์ -> ${row.keys.take(12).join(",")}');
+
+      // ถ้าอ่านตรงแล้วได้แต่โครงเปล่า (ไม่มีฟิลด์จริงสักช่อง) อย่าเพิ่งคืนค่า
+      // ให้ตกไปใช้ fallback สแกนทั้งตาราง ซึ่งเป็นเส้นทางเดียวกับหน้า "รายการซ่อม"
+      // ที่แสดงข้อมูลได้ปกติอยู่แล้ว
+      if (_rowHasContent(row)) {
+        row['_fbKey'] = snap.key ?? key;
+        row['id'] ??= snap.key ?? key;
+        if (table == 'repairs') {
+          row['status'] = getEffectiveRepairStatus(row);
+        }
+        return row;
       }
-      return row;
+
+      DebugLog.add(
+          '_byId($table,$id): record ที่อ่านตรงว่างเปล่า -> ไปสแกนทั้งตารางต่อ');
     }
 
     // 5. Fallback: สแกนทั้งตาราง (รองรับทั้ง Map และ List จาก Firebase)
@@ -277,7 +327,7 @@ class DatabaseHelper {
         if (raw is Map) {
           for (final entry in raw.entries) {
             if (entry.value is Map) {
-              final row = Map<String, dynamic>.from(entry.value as Map);
+              final row = normalizeRow(entry.value);
               row['_fbKey'] = entry.key.toString();
               allRows.add(row);
             }
@@ -285,7 +335,7 @@ class DatabaseHelper {
         } else if (raw is List) {
           for (var i = 0; i < raw.length; i++) {
             if (raw[i] != null && raw[i] is Map) {
-              final row = Map<String, dynamic>.from(raw[i] as Map);
+              final row = normalizeRow(raw[i]);
               row['_fbKey'] = i.toString();
               allRows.add(row);
             }
@@ -346,7 +396,7 @@ class DatabaseHelper {
       for (final entry in raw.entries) {
         final v = entry.value;
         if (v is Map) {
-          final row = Map<String, dynamic>.from(v);
+          final row = normalizeRow(v);
           row['_fbKey'] = entry.key.toString();
           row['id'] ??= entry.key.toString();
           if (table == 'repairs') {
@@ -359,7 +409,7 @@ class DatabaseHelper {
       for (var i = 0; i < raw.length; i++) {
         final v = raw[i];
         if (v != null && v is Map) {
-          final row = Map<String, dynamic>.from(v);
+          final row = normalizeRow(v);
           row['_fbKey'] = i.toString();
           row['id'] ??= i.toString();
           if (table == 'repairs') {
@@ -402,7 +452,7 @@ class DatabaseHelper {
         for (final entry in raw.entries) {
           final v = entry.value;
           if (v is Map) {
-            final row = Map<String, dynamic>.from(v);
+            final row = normalizeRow(v);
             row['_fbKey'] = entry.key.toString();
             row['id'] ??= entry.key.toString();
             if (table == 'repairs') {
@@ -415,7 +465,7 @@ class DatabaseHelper {
         for (var i = 0; i < raw.length; i++) {
           final v = raw[i];
           if (v != null && v is Map) {
-            final row = Map<String, dynamic>.from(v);
+            final row = normalizeRow(v);
             row['_fbKey'] = i.toString();
             row['id'] ??= i.toString();
             if (table == 'repairs') {

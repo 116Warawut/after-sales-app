@@ -29,6 +29,16 @@ double? _asDouble(dynamic v) {
 
 String? _asString(dynamic v) => v?.toString();
 
+// 🍎 [แก้บัค iOS] คีย์จริงใน Firebase เป็นแบบ "k40" ถ้า record ไม่มีฟิลด์ id
+// ข้างใน _byId() จะเติม id = "k40" ให้ ซึ่ง int.tryParse() แปลงไม่ได้ -> id เป็น
+// null -> ปุ่มแชท/แผนที่/ยกเลิก ใช้ไม่ได้ ตัดตัว k ออกก่อนแปลง
+int? _asRecordId(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString().trim().replaceFirst(RegExp(r'^[kK]'), ''));
+}
+
 class CustomerJobDetail extends StatelessWidget {
   final int? repairId;
   const CustomerJobDetail({super.key, this.repairId});
@@ -233,7 +243,9 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
       if (!mounted) return;
       setState(() {
         _job = CustomerJobInfo(
-          id: _asInt(repair['id']),
+          id: _asRecordId(repair['id']) ??
+              _asRecordId(repair['_fbKey']) ??
+              widget.repairId,
           ticketId: _asString(repair['ticketNo']) ?? '-',
           machineCode: _asInt(repair['machine_id'])?.toString() ??
               _asString(repair['machine_id']) ??
