@@ -1,5 +1,6 @@
 import 'dart:async' show unawaited;
 import 'package:firebase_database/firebase_database.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:after_sales/push_notification_service.dart';
 import 'package:after_sales/utils/serial_number.dart';
 import 'package:after_sales/debug_log.dart'; // 🔴 [ชั่วคราว-Debug]
@@ -70,8 +71,22 @@ String getEffectiveRepairStatus(Map<String, dynamic> repair) {
   switch (dateComp) {
     case DateComparison.future:
       return 'รอดำเนินการ';
+    // 🐛 [แก้บัค] เดิมถึงวันนัดปุ๊บ จะบังคับคืนค่า 'กำลังซ่อม' เสมอไม่ว่าสถานะ
+    // จริงจะเป็นอะไร ทำให้งานทุกงานของช่างในวันเดียวกัน (ไม่ว่าจะถึงคิวหรือยัง)
+    // ถูกอ่านว่า "กำลังซ่อม" เหมือนกันหมด — ระบบคิวงานในหน้าติดตามตำแหน่งลูกค้า
+    // ของช่าง (customer_tracking.dart) เลยเข้าใจผิดว่าทุกงานของวันนี้ "เริ่มลงมือ
+    // จริงแล้ว" (isPhysicallyStarted) และปล่อยให้ช่างดูตำแหน่งลูกค้าได้ทุกงาน
+    // พร้อมกันทั้งที่ยังไม่ถึงคิว — ตอนนี้คืนค่าตามสถานะจริงที่บันทึกไว้แทน
+    // ('กำลังเดินทาง'/'กำลังดำเนินการ'/'กำลังซ่อม' จาก markTechnicianTraveling()/
+    // updateRepairStatus() จริง ๆ) ถ้ายังไม่ถึงขั้นไหนเลยให้ถือว่ายัง "รอดำเนินการ"
+    // เหมือนงานที่ยังไม่ถึงวันนัด (ดู assignTechnicianToRepair() ที่แก้คู่กัน)
     case DateComparison.today:
-      return 'กำลังซ่อม';
+      if (rawStatus == 'กำลังเดินทาง' ||
+          rawStatus == 'กำลังดำเนินการ' ||
+          rawStatus == 'กำลังซ่อม') {
+        return rawStatus;
+      }
+      return 'รอดำเนินการ';
     case DateComparison.past:
       return 'เกินกำหนดเวลา';
   }
@@ -197,106 +212,131 @@ class DatabaseHelper {
     await _root.child('$table/$trimmed').remove();
   }
 
-  // คัดลอกไปวางแทนที่ฟังก์ชัน _byId เดิมใน lib/services.dart
-  //
-  // 🔴 [แก้ไข] BEFORE: เดิมเดา key รูปแบบ "k<เลข>" ได้แค่ 3 แบบ (k37 / 37 /
-  // รหัสดิบ) ถ้า record จริงถูกสร้างด้วยคีย์คนละรูปแบบ (เช่น ฝั่งเว็บแอดมิน
-  // React/Vite อาจใช้ Firebase push() key แบบสุ่ม เช่น "-OxAbC123" แทนที่จะ
-  // เป็น "k<เลข>" แบบที่แอป Flutter ฝั่งนี้สร้าง) ทั้ง 3 แบบจะหาไม่เจอเลย แล้ว
-  // คืนค่า null แบบเงียบๆ (ไม่มี error ให้เห็น) ทำให้หน้ารายละเอียดงาน/แชท
-  // ที่เรียก getRepairById() ต่อ ขึ้นเป็น placeholder "-" ทั้งหน้า ทั้งที่ข้อมูล
-  // จริงมีอยู่และแสดงถูกต้องในหน้ารายการ (ซึ่งอ่านทั้งตารางด้วย _all() ไม่ได้
-  // เดา key เลยไม่เจอปัญหานี้)
-  //
-  // AFTER: ถ้าเดา key 3 แบบแล้วยังไม่เจอ ให้ fallback สแกนทั้งตาราง (เหมือนที่
-  // หน้ารายการใช้) แล้วเทียบ "คีย์จริง" หรือ field 'id' ภายใน record แทน
-  // รับประกันว่าถ้า record เจอในหน้ารายการได้ ก็ต้องเจอในหน้ารายละเอียดได้ด้วย
-Future<Map<String, dynamic>?> _byId(String table, dynamic id) async {
-  if (id == null) return null;
-  final key = _k(id);
-  if (key.isEmpty) return null;
-  final rawId = id.toString().trim();
+  /// ค้นหาข้อมูลตาม ID โดยค้นหาได้ทั้ง Key ตรง, รูปแบบสลับ k, ตัวเลขล้วน และสแกนค้นหาด้วย ticketNo
+  Future<Map<String, dynamic>?> _byId(String table, dynamic id) async {
+    if (id == null) return null;
+    final rawId = id.toString().trim();
+    if (rawId.isEmpty || rawId == 'null') return null;
 
-  DataSnapshot snap;
-  try {
-    // 1. ลองค้นหาด้วยคีย์ปกติ (เช่น k37)
-    snap = await _root.child('$table/$key').get();
-    DebugLog.add('_byId($table,$id): ลอง key="$key" -> exists=${snap.exists}');
+    final key = _k(id);
+    DataSnapshot snap;
 
-    // 2. ถ้าไม่พบ ให้ลองสลับรูปแบบคีย์ (ตัด 'k' ออก หรือเติม 'k' เข้าไป)
-    if (!snap.exists || snap.value == null) {
-      final altKey = (rawId.startsWith('k') || rawId.startsWith('K'))
-          ? rawId.substring(1)
-          : 'k$rawId';
+    try {
+      // 1. ค้นหาด้วยคีย์ปกติ (เช่น k37, -Ox123)
+      snap = await _root.child('$table/$key').get();
+      DebugLog.add('_byId($table,$id): ลอง key="$key" -> exists=${snap.exists}');
 
-      snap = await _root.child('$table/$altKey').get();
-      DebugLog.add(
-          '_byId($table,$id): ลอง altKey="$altKey" -> exists=${snap.exists}');
-
-      // 3. ถ้ายังไม่พบอีก ให้ลองค้นหาด้วยรหัสเดิมแบบตรงๆ
+      // 2. ถ้าไม่พบ ให้ลองสลับรูปแบบคีย์ (ตัด 'k' ออก หรือเติม 'k' เข้าไป)
       if (!snap.exists || snap.value == null) {
-        snap = await _root.child('$table/$rawId').get();
-        DebugLog.add(
-            '_byId($table,$id): ลอง rawId="$rawId" -> exists=${snap.exists}');
-      }
-    }
-  } catch (e) {
-    // เช่น permission-denied จาก Security Rules — เดิมไม่ได้ catch ตรงนี้เลย
-    DebugLog.add('_byId($table,$id): EXCEPTION ตอนอ่านด้วย key ตรงๆ: $e');
-    snap = await _dummyMissingSnapshot();
-  }
+        final altKey = (rawId.startsWith('k') || rawId.startsWith('K'))
+            ? rawId.substring(1)
+            : 'k$rawId';
 
-  if (snap.exists && snap.value != null) {
-    final row = Map<String, dynamic>.from(snap.value as Map);
-    row['_fbKey'] = snap.key ?? key;
-    row['id'] ??= snap.key ?? key;
-    if (table == 'repairs') {
-      row['status'] = getEffectiveRepairStatus(row);
-    }
-    return row;
-  }
+        snap = await _root.child('$table/$altKey').get();
+        DebugLog.add('_byId($table,$id): ลอง altKey="$altKey" -> exists=${snap.exists}');
 
-  // 4. Fallback: เดา key ตรงๆ ไม่เจอเลย — สแกนทั้งตาราง (เหมือน _all()) แล้ว
-  // เทียบคีย์จริง หรือ field 'id' ภายใน record แทน กันเคส key คนละรูปแบบ
-  try {
-    final allSnap = await _root.child(table).get();
-    if (allSnap.exists && allSnap.value is Map) {
-      for (final entry in (allSnap.value as Map).entries) {
-        final v = entry.value;
-        if (v is! Map) continue;
-        final keyStr = entry.key.toString();
-        final candidate = Map<String, dynamic>.from(v);
-        final fieldIdStr = candidate['id']?.toString();
-        final matches = keyStr == rawId ||
-            keyStr == key ||
-            keyStr == 'k$rawId' ||
-            fieldIdStr == rawId;
-        if (matches) {
-          candidate['_fbKey'] = keyStr;
-          candidate['id'] ??= keyStr;
-          if (table == 'repairs') {
-            candidate['status'] = getEffectiveRepairStatus(candidate);
+        // 3. ลองค้นหาด้วยรหัสเดิมตรงๆ
+        if (!snap.exists || snap.value == null) {
+          snap = await _root.child('$table/$rawId').get();
+          DebugLog.add('_byId($table,$id): ลอง rawId="$rawId" -> exists=${snap.exists}');
+        }
+
+        // 4. สกัดเอาเฉพาะตัวเลข (เช่น #AS-888355 -> 888355)
+        final numericOnly = rawId.replaceAll(RegExp(r'[^0-9]'), '');
+        if ((!snap.exists || snap.value == null) &&
+            numericOnly.isNotEmpty &&
+            numericOnly != rawId) {
+          snap = await _root.child('$table/$numericOnly').get();
+          if (!snap.exists || snap.value == null) {
+            snap = await _root.child('$table/k$numericOnly').get();
           }
-          DebugLog.add(
-              '_byId($table,$id): เจอผ่าน fallback สแกนทั้งตาราง (key จริง="$keyStr")');
-          return candidate;
         }
       }
+    } catch (e) {
+      DebugLog.add('_byId($table,$id): EXCEPTION ตอนอ่าน key ตรงๆ: $e');
+      snap = await _dummyMissingSnapshot();
     }
-    DebugLog.add(
-        '_byId($table,$id): fallback สแกนทั้งตารางแล้วก็ไม่เจอ (ไม่มี record นี้จริงๆ หรือ key ไม่ตรงกันเลยสักแบบ)');
-  } catch (e) {
-    DebugLog.add('_byId($table,$id): EXCEPTION ตอน fallback สแกนทั้งตาราง: $e');
-  }
-  return null;
-}
 
-// helper เล็กๆ สำหรับ branch exception ด้านบน — คืนค่า snapshot ที่ไม่ exists
-Future<DataSnapshot> _dummyMissingSnapshot() async {
-  final ref = FirebaseDatabase.instance
-      .ref('__debug_nonexistent_path_${DateTime.now().microsecondsSinceEpoch}');
-  return ref.get();
-}
+    if (snap.exists && snap.value != null && snap.value is Map) {
+      final row = Map<String, dynamic>.from(snap.value as Map);
+      row['_fbKey'] = snap.key ?? key;
+      row['id'] ??= snap.key ?? key;
+      if (table == 'repairs') {
+        row['status'] = getEffectiveRepairStatus(row);
+      }
+      return row;
+    }
+
+    // 5. Fallback: สแกนทั้งตาราง (รองรับทั้ง Map และ List จาก Firebase)
+    try {
+      final allSnap = await _root.child(table).get();
+      if (allSnap.exists && allSnap.value != null) {
+        final raw = allSnap.value;
+        final List<Map<String, dynamic>> allRows = [];
+
+        if (raw is Map) {
+          for (final entry in raw.entries) {
+            if (entry.value is Map) {
+              final row = Map<String, dynamic>.from(entry.value as Map);
+              row['_fbKey'] = entry.key.toString();
+              allRows.add(row);
+            }
+          }
+        } else if (raw is List) {
+          for (var i = 0; i < raw.length; i++) {
+            if (raw[i] != null && raw[i] is Map) {
+              final row = Map<String, dynamic>.from(raw[i] as Map);
+              row['_fbKey'] = i.toString();
+              allRows.add(row);
+            }
+          }
+        }
+
+        final numericRaw = rawId.replaceAll(RegExp(r'[^0-9]'), '');
+
+        for (final candidate in allRows) {
+          final keyStr = candidate['_fbKey']?.toString() ?? '';
+          final fieldIdStr = candidate['id']?.toString() ?? '';
+          final ticketNoStr = candidate['ticketNo']?.toString() ?? '';
+
+          final numFieldId = fieldIdStr.replaceAll(RegExp(r'[^0-9]'), '');
+          final numTicketNo = ticketNoStr.replaceAll(RegExp(r'[^0-9]'), '');
+          final numKeyStr = keyStr.replaceAll(RegExp(r'[^0-9]'), '');
+
+          final matches = keyStr == rawId ||
+              keyStr == key ||
+              keyStr == 'k$rawId' ||
+              fieldIdStr == rawId ||
+              ticketNoStr == rawId ||
+              (numericRaw.isNotEmpty &&
+                  (numFieldId == numericRaw ||
+                      numTicketNo == numericRaw ||
+                      numKeyStr == numericRaw));
+
+          if (matches) {
+            candidate['_fbKey'] = keyStr;
+            candidate['id'] ??= keyStr;
+            if (table == 'repairs') {
+              candidate['status'] = getEffectiveRepairStatus(candidate);
+            }
+            DebugLog.add('_byId($table,$id): พบข้อมูลผ่าน fallback (key="$keyStr")');
+            return candidate;
+          }
+        }
+      }
+      DebugLog.add('_byId($table,$id): fallback สแกนแล้วไม่พบข้อมูล');
+    } catch (e) {
+      DebugLog.add('_byId($table,$id): EXCEPTION ตอน fallback สแกน: $e');
+    }
+    return null;
+  }
+
+  Future<DataSnapshot> _dummyMissingSnapshot() async {
+    final ref = FirebaseDatabase.instance
+        .ref('__debug_nonexistent_path_${DateTime.now().microsecondsSinceEpoch}');
+    return ref.get();
+  }
+
   Future<List<Map<String, dynamic>>> _all(String table) async {
     final snap = await _root.child(table).get();
     if (!snap.exists || snap.value == null) return [];
@@ -924,9 +964,15 @@ Future<DataSnapshot> _dummyMissingSnapshot() async {
         initialStatus = 'รอดำเนินการ';
         progress = 0.05;
         break;
+      // 🐛 [แก้บัค] เดิมตั้งสถานะเริ่มต้นเป็น 'กำลังซ่อม' ทันทีตอนมอบหมายงานที่
+      // นัดวันนี้พอดี ทั้งที่ช่างยังไม่ได้เริ่มเดินทาง/ลงมือทำจริงเลย — ทำให้งาน
+      // ทุกงานของวันนั้น (ถ้าช่างมีมากกว่า 1 งาน) ดูเหมือน "กำลังซ่อม" พร้อมกัน
+      // หมดตั้งแต่ยังไม่ถึงคิว เปลี่ยนเป็น 'รอดำเนินการ' ก่อน แล้วค่อยขยับเป็น
+      // 'กำลังเดินทาง' (เมื่อถึงคิวและช่างเปิดดูแผนที่) และ 'กำลังดำเนินการ'
+      // (เมื่อช่างกดรับงานจริง) ตามลำดับจริงแทน
       case DateComparison.today:
-        initialStatus = 'กำลังซ่อม';
-        progress = 0.1;
+        initialStatus = 'รอดำเนินการ';
+        progress = 0.05;
         break;
       case DateComparison.past:
         initialStatus = 'เกินกำหนดเวลา';
@@ -976,13 +1022,6 @@ Future<DataSnapshot> _dummyMissingSnapshot() async {
       return true;
     });
 
-    // 🐛 [แก้ไข] เดิม approvalKey คืนค่า '' (string ว่าง) เวลาไม่มีทั้ง
-    // approved_at และ created_at ซึ่งพอเทียบด้วย compareTo แล้ว string ว่าง
-    // จะเรียงมาก่อน string อื่นเสมอ (เทียบตัวอักษรทีละตัว ว่างแพ้ทุกตัวอักษร)
-    // ทำให้งาน "ไม่มีเวลา" แซงคิวไปอยู่อันดับ 1 เสมอไม่ว่าจริง ๆ จะอนุมัติ
-    // ทีหลังงานอื่นแค่ไหนก็ตาม — เปลี่ยนมาให้งานที่ไม่มีเวลาบันทึกไว้เลย
-    // ("null") ไปอยู่ท้ายคิวแทน (คิวจริงควรมี created_at เสมออยู่แล้วตอน
-    // สร้าง record จุดนี้กันไว้เผื่อข้อมูลเก่า/ผิดปกติที่ไม่มีฟิลด์นี้)
     sameDayJobs.sort((a, b) {
       final ak = approvalKey(a);
       final bk = approvalKey(b);
@@ -999,6 +1038,62 @@ Future<DataSnapshot> _dummyMissingSnapshot() async {
     }
 
     return (position: index + 1, total: sameDayJobs.length);
+  }
+
+  /// 🆕 [ใหม่] ตั้งสถานะงานเป็น "กำลังเดินทาง" ให้ลูกค้าเห็น — เรียกตอนช่างเปิด
+  /// หน้าติดตามตำแหน่งลูกค้า (CustomerTrackingPage) แล้วผ่านเงื่อนไขวันนัด+คิวงาน
+  /// เรียบร้อย (คือกำลังจะออกเดินทางไปหาลูกค้าจริง ๆ) ไม่ทับสถานะที่ก้าวหน้าไป
+  /// ไกลกว่านี้แล้ว (กำลังดำเนินการ/เสร็จแล้ว/มีปัญหา/ยกเลิก) กันย้อนสถานะกลับ
+  Future<void> markTechnicianTraveling(dynamic repairId) async {
+    final repair = await getRepairById(repairId);
+    if (repair == null) return;
+    final rawStatus = (repair['status'] as String?)?.trim() ?? '';
+    if (rawStatus == 'กำลังเดินทาง') return; // ตั้งไว้แล้ว ไม่ต้องเขียนซ้ำ
+    const pastStages = {
+      'กำลังดำเนินการ',
+      'กำลังซ่อม',
+      'เสร็จแล้ว',
+      'เสร็จสิ้น',
+      'มีปัญหา',
+    };
+    if (pastStages.contains(rawStatus) || rawStatus.contains('ยกเลิก')) return;
+    await _updateById('repairs', repairId, {'status': 'กำลังเดินทาง'});
+  }
+
+  /// 🆕 [ใหม่] เช็คระยะห่างแบบเส้นตรง (Haversine ผ่าน Geolocator) ระหว่างตำแหน่ง
+  /// ช่างปัจจุบันกับหมุดลูกค้า ถ้าเข้าใกล้ในรัศมี 1 กม. ให้แจ้งเตือนลูกค้าว่า
+  /// "ช่างใกล้ถึงแล้ว" — ส่งแค่ครั้งเดียวต่องาน (เก็บ flag near_notified ไว้กัน
+  /// แจ้งเตือนซ้ำ ๆ ตอนช่างเข้า-ออกรัศมีระหว่างรถติดไฟแดงหน้าปากซอย)
+  Future<void> notifyIfTechnicianNearby({
+    required dynamic repairId,
+    required double techLat,
+    required double techLng,
+    required double destLat,
+    required double destLng,
+    required String customerUsername,
+    required String ticketLabel,
+  }) async {
+    if (customerUsername.trim().isEmpty) return;
+    final repair = await getRepairById(repairId);
+    if (repair == null) return;
+    final alreadyNotified =
+        repair['near_notified'] == true || repair['near_notified'] == 1;
+    if (alreadyNotified) return;
+
+    final distanceMeters =
+        Geolocator.distanceBetween(techLat, techLng, destLat, destLng);
+    if (distanceMeters > 1000) return;
+
+    await _updateById('repairs', repairId, {'near_notified': true});
+    await createNotification({
+      'user_username': customerUsername,
+      'role': 'CUSTOMER',
+      'title': 'ช่างใกล้ถึงแล้ว',
+      'message': 'ช่างซ่อมเดินทางใกล้ถึงตำแหน่งของท่านแล้ว (งาน $ticketLabel)',
+      'type': 'TECH_NEARBY',
+      'target_id': repairId,
+      'is_read': 0,
+    });
   }
 
   Future<Map<String, int>> getRepairSummary(String username) async {
@@ -1098,11 +1193,6 @@ Future<DataSnapshot> _dummyMissingSnapshot() async {
     } catch (_) {}
   }
 
-  // 🐛 [แก้บัค] เดิมฟังก์ชันนี้เขียนแค่ 'rating_stars' + 'rating_technician_username'
-  // ไม่มี 'rating'/'rating_comment' เลย ทำให้ไม่ตรงกับฟิลด์ที่หน้าจอจริง
-  // (_submitRating ใน customer_job_detail.dart) ใช้งานอยู่ — ถ้าถูกเรียกใช้จริง
-  // ในอนาคตจะได้ข้อมูลไม่ครบ (เว็บ/รายงานที่คาดหวัง rating, rating_comment จะ
-  // ไม่เห็นค่า) จึงปรับให้เขียนฟิลด์ชุดเดียวกับ flow จริงเป๊ะ ๆ พร้อมรับ comment
   Future<int> submitTechnicianRating(
     dynamic repairId,
     int stars, {
@@ -1173,10 +1263,17 @@ Future<DataSnapshot> _dummyMissingSnapshot() async {
   Future<int> updateRepair(dynamic id, Map<String, dynamic> data) =>
       _updateById('repairs', id, data);
 
+  // 🆕 [ใหม่] เพิ่มพารามิเตอร์ photoUrls (URL รูปที่อัปโหลดขึ้น Cloudinary แล้ว
+  // จากฝั่งเรียก ไม่ใช่ path ไฟล์ในเครื่อง) เก็บเป็น String เดียวคั่นด้วยจุลภาค
+  // ในฟิลด์ "problem_photos" — ใช้รูปแบบเดียวกับฟิลด์ "images" ของฟอร์มแจ้งซ่อม
+  // ลูกค้า (repair_form.dart) เพื่อให้ฝั่งเว็บอ่านได้ตรงกันแบบเดียวกันทั้งแอป
+  // (ดู getProblemPhotos()/getIssueReport() ใน JobDetailModal.jsx ฝั่งเว็บที่
+  // แก้ให้รองรับรูปแบบนี้คู่กันแล้ว)
   Future<int> markRepairProblem(
     dynamic id, {
     required String techUsername,
     String? note,
+    List<String> photoUrls = const [],
   }) async {
     if (id == null) throw const FormatException('รหัสงานซ่อมไม่ถูกต้อง');
     final repair = await getRepairById(id);
@@ -1186,6 +1283,7 @@ Future<DataSnapshot> _dummyMissingSnapshot() async {
       'status': 'มีปัญหา',
       'status_before_problem': currentStatus,
       'problem_note': (note?.trim().isNotEmpty ?? false) ? note!.trim() : '',
+      'problem_photos': photoUrls.isNotEmpty ? photoUrls.join(',') : '',
       'problem_reported_by': techUsername,
       'problem_reported_at': DateTime.now().toIso8601String(),
     });
@@ -1201,6 +1299,7 @@ Future<DataSnapshot> _dummyMissingSnapshot() async {
       'status': previousStatus,
       'status_before_problem': null,
       'problem_note': null,
+      'problem_photos': null,
     });
   }
 

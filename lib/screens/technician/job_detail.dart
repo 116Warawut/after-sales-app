@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:after_sales/app_styles.dart';
+import 'package:after_sales/cloudinary_service.dart';
 import 'package:after_sales/enums/user_role.dart';
 import 'package:after_sales/screens/chat_screen.dart';
 import 'package:after_sales/screens/customer/customer_job_detail.dart'
@@ -190,88 +194,227 @@ class _JobDetailPageState extends State<JobDetailPage> {
   }
 
   // ⚠️ แจ้งว่างานนี้ "มีปัญหา / ต้องตรวจสอบ"
+  // 🆕 [ใหม่] เพิ่มช่องแนบรูปภาพประกอบ (สูงสุด 4 รูป ไม่บังคับ) นอกเหนือจาก
+  // ข้อความเดิม — ฝั่งเว็บ (JobDetailModal.jsx -> getIssueReport()) เตรียมช่อง
+  // แสดงรูปประกอบปัญหาไว้รอแล้วแต่ฝั่งแอปยังไม่เคยส่งรูปขึ้นไปเลย ใช้ image_picker
+  // + CloudinaryService แบบเดียวกับหน้าส่งรายงานซ่อม (report.dart) และฟอร์ม
+  // แจ้งซ่อมของลูกค้า (repair_form.dart) เพื่อให้ทุกฝ่ายเปิดดูรูปได้จากทุกเครื่อง
   Future<void> _markProblem() async {
     final noteController = TextEditingController();
+    final picker = ImagePicker();
+    final List<XFile> selectedPhotos = [];
+
+    Future<void> pickPhoto(StateSetter setDialogState) async {
+      if (selectedPhotos.length >= 4) {
+        _snack('แนบรูปได้สูงสุด 4 รูป');
+        return;
+      }
+      // 🐛 [แก้บัค] เดิมเปิด showModalBottomSheet นี้จากใน showDialog อีกที
+      // (ป๊อปอัพซ้อนป๊อปอัพ) โดยไม่ระบุ useRootNavigator เลย ค่า default ของ
+      // showModalBottomSheet คือ false (ใช้ Navigator ที่ใกล้ context ที่สุด)
+      // แต่ showDialog ด้านนอกใช้ useRootNavigator: true (ค่า default ของมัน)
+      // — ถ้าหน้านี้อยู่ใต้ Navigator ซ้อนกัน (เช่น bottom nav ที่มี Navigator
+      // แยกต่อแท็บ) ทั้งสองป๊อปอัพเลยไปเปิดอยู่คนละ Navigator กัน ตัวเลือก
+      // "ถ่ายภาพ/เลือกจากคลังภาพ" เลยไปโผล่อยู่ใน Overlay ของ Navigator ชั้นใน
+      // (ต่ำกว่า) ทำให้ม่านมืดโปร่งแสงของ Dialog ชั้นนอกทับอยู่ด้านบน กดเลือก
+      // อะไรไม่ได้เลยตามที่เจอ — บังคับให้ใช้ root Navigator เดียวกับ Dialog
+      // เสมอ กันไม่ให้ไปเปิดคนละชั้นกันอีก
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        useRootNavigator: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (sheetCtx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('แนบรูปภาพประกอบปัญหา',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        fontFamily: AppStyles.fontFamily)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('ถ่ายภาพ'),
+                onTap: () => Navigator.pop(sheetCtx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('เลือกจากคลังภาพ'),
+                onTap: () => Navigator.pop(sheetCtx, ImageSource.gallery),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      );
+      if (source == null) return;
+      try {
+        final picked = await picker.pickImage(source: source, imageQuality: 80);
+        if (picked == null) return;
+        setDialogState(() => selectedPhotos.add(picked));
+      } catch (e) {
+        _snack('เลือกรูปไม่สำเร็จ: $e');
+      }
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: AppColors.redBg,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.report_problem_outlined,
-                    color: AppColors.redText, size: 26),
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                'แจ้งว่างานนี้มีปัญหา / ต้องตรวจสอบ',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  fontFamily: AppStyles.fontFamily,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'ระบุเหตุผลสั้น ๆ ให้แอดมินทราบ (ไม่บังคับ) สถานะงานจะเปลี่ยนเป็น '
-                '"มีปัญหา" จนกว่าจะกดยกเลิกสถานะนี้',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSubtitle,
-                  fontFamily: AppStyles.fontFamily,
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: noteController,
-                maxLines: 3,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontFamily: AppStyles.fontFamily,
-                ),
-                decoration: AppStyles.inputDecoration(
-                  hintText: 'เช่น รออะไหล่, ติดต่อลูกค้าไม่ได้',
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => Dialog(
+          backgroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('ไม่ใช่ตอนนี้'),
+                  Container(
+                    width: 52,
+                    height: 52,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: AppColors.redBg,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.report_problem_outlined,
+                        color: AppColors.redText, size: 26),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'แจ้งว่างานนี้มีปัญหา / ต้องตรวจสอบ',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: AppStyles.fontFamily,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.redText,
-                      ),
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('แจ้งปัญหา',
-                          style: TextStyle(color: Colors.white)),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'ระบุเหตุผลและแนบรูปประกอบให้แอดมินทราบ (ไม่บังคับ) สถานะงานจะ'
+                    'เปลี่ยนเป็น "มีปัญหา" จนกว่าจะกดยกเลิกสถานะนี้',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSubtitle,
+                      fontFamily: AppStyles.fontFamily,
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: noteController,
+                    maxLines: 3,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontFamily: AppStyles.fontFamily,
+                    ),
+                    decoration: AppStyles.inputDecoration(
+                      hintText: 'เช่น รออะไหล่, ติดต่อลูกค้าไม่ได้',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'รูปภาพประกอบ (ไม่บังคับ, สูงสุด 4 รูป)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSubtitle,
+                        fontFamily: AppStyles.fontFamily,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (var i = 0; i < selectedPhotos.length; i++)
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.file(
+                                File(selectedPhotos[i].path),
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              top: -6,
+                              right: -6,
+                              child: GestureDetector(
+                                onTap: () => setDialogState(
+                                    () => selectedPhotos.removeAt(i)),
+                                child: Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.redText,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.close,
+                                      color: Colors.white, size: 14),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      if (selectedPhotos.length < 4)
+                        GestureDetector(
+                          onTap: () => pickPhoto(setDialogState),
+                          child: Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.border),
+                              color: AppColors.surfaceAlt,
+                            ),
+                            child: const Icon(Icons.add_a_photo_outlined,
+                                color: AppColors.textSubtitle, size: 22),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('ไม่ใช่ตอนนี้'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.redText,
+                          ),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('แจ้งปัญหา',
+                              style: TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -287,10 +430,18 @@ class _JobDetailPageState extends State<JobDetailPage> {
 
     setState(() => _isMarkingProblem = true);
     try {
+      // 📤 อัปโหลดรูปประกอบ (ถ้ามี) ขึ้น Cloudinary ก่อนเสมอ — เก็บแค่ path ไฟล์
+      // ในเครื่องช่างจะทำให้แอดมิน/ลูกค้าที่เปิดดูจากเครื่องอื่นเห็นรูปไม่ได้
+      // (บั๊กแบบเดียวกับที่เคยเจอในฟอร์มแจ้งซ่อม/รายงานซ่อม)
+      List<String> photoUrls = [];
+      if (selectedPhotos.isNotEmpty) {
+        photoUrls = await CloudinaryService.uploadImages(selectedPhotos);
+      }
       await db.DatabaseHelper.instance.markRepairProblem(
         widget.repairId,
         techUsername: db.Session.currentUsername,
         note: note,
+        photoUrls: photoUrls,
       );
       if (_adminUsername.isNotEmpty) {
         await db.DatabaseHelper.instance.createNotification({

@@ -5,6 +5,7 @@
 // ---- ลบไฟล์นี้ทิ้งทั้งไฟล์ได้เมื่อ debug เสร็จแล้ว พร้อมกับจุดที่เรียกใช้
 //      (services.dart และ main.dart) ----
 import 'package:flutter/material.dart';
+import 'package:after_sales/push_notification_service.dart' show navigatorKey;
 
 class DebugLog {
   static final List<String> _entries = [];
@@ -47,18 +48,22 @@ class DebugLogButton extends StatelessWidget {
   }
 
   void _showLog(BuildContext context) {
+    // ใช้ navigatorKey.currentContext เพื่อให้มี Navigator Context ที่ถูกต้องจากทุกหน้า
+    final targetContext = navigatorKey.currentContext ?? context;
+
     showModalBottomSheet(
-      context: context,
+      context: targetContext,
       isScrollControlled: true,
-      builder: (ctx) {
+      useRootNavigator: true,
+      builder: (sheetContext) {
         return StatefulBuilder(
-          builder: (ctx, setSheetState) {
+          builder: (sheetContext, setSheetState) {
             return DraggableScrollableSheet(
               initialChildSize: 0.7,
               minChildSize: 0.3,
               maxChildSize: 0.95,
               expand: false,
-              builder: (ctx, scrollController) {
+              builder: (sheetContext, scrollController) {
                 return Column(
                   children: [
                     Padding(
@@ -81,7 +86,7 @@ class DebugLogButton extends StatelessWidget {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            onPressed: () => Navigator.pop(ctx),
+                            onPressed: () => Navigator.of(sheetContext).pop(),
                           ),
                         ],
                       ),
@@ -96,7 +101,7 @@ class DebugLogButton extends StatelessWidget {
                               itemCount: DebugLog.entries.length,
                               separatorBuilder: (_, __) =>
                                   const Divider(height: 16),
-                              itemBuilder: (ctx, i) => SelectableText(
+                              itemBuilder: (sheetContext, i) => SelectableText(
                                 DebugLog.entries[i],
                                 style: const TextStyle(
                                     fontSize: 12, fontFamily: 'monospace'),

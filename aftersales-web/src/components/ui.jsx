@@ -385,7 +385,7 @@ export function DateField({ value, onChange, min, max, disabled, placeholder = "
 
       {open ? (
         // 🎨 ป๊อปอัปปฏิทิน — การ์ดขาวลอยใต้ปุ่ม เงาเบา ๆ กันขอบจอบัง
-        <div className="absolute z-20 mt-1.5 w-72 bg-white rounded-xl border border-slate-200 shadow-lg p-3">
+        <div className="absolute z-[9999] mt-1.5 w-72 bg-white rounded-xl border border-slate-200 shadow-lg p-3">
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={goPrevMonth} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-50">
               <ChevronLeft size={15} />
@@ -425,6 +425,56 @@ export function DateField({ value, onChange, min, max, disabled, placeholder = "
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 🆕 [ใหม่] ตัวเลือกเวลา (ชั่วโมง:นาที) แบบง่าย — ใช้คู่กับ DateField ตอน
+// เลือกวันเวลานัดหมายช่าง รับ/คืนค่าเป็นสตริง "HH:MM" แบบ 24 ชั่วโมง (เช่น
+// "09:05", "23:59") เลือกได้ตั้งแต่ 00:00 ถึง 23:59 ไม่มีข้อจำกัดอื่น (ข้อจำกัด
+// เรื่อง "ห้ามเลือกวันในอดีต" อยู่ที่ DateField คู่กันอยู่แล้ว)
+// ---------------------------------------------------------------------------
+const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+
+export function TimeField({ value, onChange, disabled }) {
+  const [h, m] = (value || "").split(":");
+  const hour = HOURS_24.includes(h) ? h : "";
+  const minute = MINUTES_60.includes(m) ? m : "";
+
+  function setHour(newH) {
+    onChange(`${newH}:${minute || "00"}`);
+  }
+  function setMinute(newM) {
+    onChange(`${hour || "00"}:${newM}`);
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={hour}
+        onChange={(e) => setHour(e.target.value)}
+        disabled={disabled}
+        className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+      >
+        <option value="" disabled>ชม.</option>
+        {HOURS_24.map((v) => (
+          <option key={v} value={v}>{v}</option>
+        ))}
+      </select>
+      <span className="text-slate-400 font-medium">:</span>
+      <select
+        value={minute}
+        onChange={(e) => setMinute(e.target.value)}
+        disabled={disabled}
+        className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+      >
+        <option value="" disabled>นาที</option>
+        {MINUTES_60.map((v) => (
+          <option key={v} value={v}>{v}</option>
+        ))}
+      </select>
     </div>
   );
 }

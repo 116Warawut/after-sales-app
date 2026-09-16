@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Wrench, Trash2, Search, UserCog, Loader2, X, UserCheck } from "lucide-react";
-import { Card, EmptyState, ConfirmDialog, Pagination } from "../components/ui";
+import { Card, EmptyState, ConfirmDialog, Pagination, DateField, TimeField } from "../components/ui";
 import {
   JOB_STATUS_TABS,
   STATUS_BADGE,
@@ -28,6 +28,23 @@ function isAssignable(j) {
   const effective = getEffectiveRepairStatus(j);
   const isCancelled = effective.includes("ยกเลิก");
   return !j.technician_username && !isCancelled && !isDoneStatus(effective);
+}
+
+// 🆕 [ใหม่] ตัวช่วยแปลงวันที่ ISO ("YYYY-MM-DD" จาก DateField) <-> รูปแบบไทยที่
+// เก็บจริงในฟิลด์ "date" ("D/M/ปีพ.ศ." เช่น "16/9/2569") — ใช้คู่กับปฏิทินเลือก
+// วันนัดตอนมอบหมายงานหลายรายการพร้อมกัน (เหมือนที่ JobDetailModal.jsx ใช้)
+function toDateInputValue(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isoToThaiDate(iso) {
+  const parts = String(iso).split("-").map(Number);
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return "";
+  return `${d}/${m}/${y + 543}`;
 }
 
 // นับจำนวนงานของแต่ละแท็บสถานะ ไว้โชว์ตัวเลขชิดขวาบนปุ่มแท็บ — ถ้างานหนึ่ง
@@ -64,18 +81,27 @@ function computeTabCounts(jobs) {
 
 function BulkAssignModal({ count, technicians, onAssign, onClose }) {
   const [selectedTech, setSelectedTech] = useState("");
+  const [dateIso, setDateIso] = useState("");
+  const [time, setTime] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [error, setError] = useState("");
 
+  const todayIso = toDateInputValue(new Date());
+
+  // 🔴 [แก้ไข] เดิมเลือกได้แค่ช่างอย่างเดียว (วันนัด/เวลานัดหายไปตอนแก้เรื่อง
+  // แผนที่ในหน้ารายละเอียดงาน — ที่นี่ก็ไม่เคยมีมาก่อนเหมือนกัน) เพิ่มให้ครบ
+  // ตามที่ขอ: เลือกช่างก่อน -> ปฏิทินเลือกวันโผล่มา (เลือกได้แค่วันนี้เป็นต้นไป)
+  // -> เลือกเวลาโผล่ตามมา -> ปุ่มยืนยันค่อยโผล่ วันที่/เวลาที่เลือกจะใช้ร่วมกัน
+  // ทุกงานที่เลือกไว้
   async function handleConfirm() {
-    if (!selectedTech) {
-      setError("กรุณาเลือกช่างเทคนิค");
+    if (!selectedTech || !dateIso || !time) {
+      setError("กรุณาเลือกช่าง วันนัด และเวลานัดให้ครบ");
       return;
     }
     setError("");
     setAssigning(true);
     try {
-      await onAssign(selectedTech);
+      await onAssign(selectedTech, isoToThaiDate(dateIso), time);
     } finally {
       setAssigning(false);
     }
@@ -104,19 +130,36 @@ function BulkAssignModal({ count, technicians, onAssign, onClose }) {
             </option>
           ))}
         </select>
+
+        {selectedTech ? (
+          <div className="mb-3">
+            <p className="text-xs font-medium text-slate-500 mb-1.5">วันนัดหมาย</p>
+            <DateField value={dateIso} min={todayIso} onChange={setDateIso} disabled={assigning} />
+          </div>
+        ) : null}
+
+        {selectedTech && dateIso ? (
+          <div className="mb-3">
+            <p className="text-xs font-medium text-slate-500 mb-1.5">เวลานัดหมาย</p>
+            <TimeField value={time} onChange={setTime} disabled={assigning} />
+          </div>
+        ) : null}
+
         {error ? <p className="text-xs text-red-500 mb-3">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <button onClick={onClose} disabled={assigning} className="px-4 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-50">
             ยกเลิก
           </button>
-          <button
-            onClick={handleConfirm}
-            disabled={assigning}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 disabled:opacity-50"
-          >
-            {assigning ? <Loader2 size={16} className="animate-spin" /> : null}
-            บันทึก
-          </button>
+          {selectedTech && dateIso && time ? (
+            <button
+              onClick={handleConfirm}
+              disabled={assigning}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 disabled:opacity-50"
+            >
+              {assigning ? <Loader2 size={16} className="animate-spin" /> : null}
+              บันทึก
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -306,13 +349,15 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
     });
   }
 
-  async function handleBulkAssign(techUsername) {
+  async function handleBulkAssign(techUsername, thaiDate, time) {
     const admin = getSessionAdmin();
     const adminUsername = admin?.username || "";
     const jobsToAssign = jobs.filter((j) => selectedIds.has(j.id));
 
     try {
-      await Promise.all(jobsToAssign.map((j) => assignTechnicianToRepair(j.id, techUsername, adminUsername, j.date)));
+      await Promise.all(
+        jobsToAssign.map((j) => assignTechnicianToRepair(j.id, techUsername, adminUsername, thaiDate, { time }))
+      );
       logActivity({
         adminUsername,
         adminName: admin?.admin_name,
@@ -329,7 +374,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
               user_username: techUsername,
               role: "TECHNICIAN",
               title: `งานซ่อมใหม่: ${ticketLabel}`,
-              message: `เครื่อง ${j.machine || ""} (${j.date || "ไม่ระบุวัน"})`,
+              message: `เครื่อง ${j.machine || ""} (${thaiDate || "ไม่ระบุวัน"})`,
               type: "JOB",
               target_id: j.id,
             }).catch((err) => console.error("[RepairJobsPage] notify technician failed:", err));

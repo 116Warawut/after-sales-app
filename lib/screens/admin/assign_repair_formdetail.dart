@@ -21,6 +21,10 @@ enum RepairStatus {
   // default กลายเป็น waiting เสมอ หน้ารายละเอียดงานเลยโชว์ "รอจัดสรรช่าง" ผิด ๆ
   // ทั้งที่มีช่างรับงานแล้วและหน้ารายการซ่อม (repair_list_admin.dart) โชว์ถูกต้อง
   scheduledPending('รอดำเนินการ'),
+  // 🆕 [ใหม่] สถานะ "กำลังเดินทาง" (ถึงคิวงานแล้ว ช่างกำลังมุ่งหน้าไปหาลูกค้า
+  // ยังไม่ได้ลงมือซ่อมจริง) — ตั้งโดย markTechnicianTraveling() ใน
+  // services.dart ตอนช่างผ่านเงื่อนไขวันนัด+คิวงานในหน้าติดตามตำแหน่งลูกค้า
+  traveling('กำลังเดินทาง'),
   inProgress('กำลังดำเนินการ'),
   overdue('เกินกำหนดเวลา'),
   completed('เสร็จสิ้นแล้ว'),
@@ -34,6 +38,10 @@ enum RepairStatus {
   static RepairStatus fromString(String? status) {
     if (status == null) return RepairStatus.waiting;
     switch (status.trim().toLowerCase()) {
+      // 🆕 [ใหม่] ค่าใหม่ที่ markTechnicianTraveling() ใน services.dart ตั้งให้
+      // ตอนช่างถึงคิวงานและเปิดดูแผนที่แล้ว (ก่อนหน้า "กำลังซ่อม" จริง)
+      case 'กำลังเดินทาง':
+        return RepairStatus.traveling;
       // 🐛 [แก้บัค] getEffectiveRepairStatus() คืนค่า 'กำลังซ่อม' (ไม่ใช่
       // 'กำลังดำเนินการ') เมื่อถึงวันนัดพอดี — เดิมไม่มีเคสนี้เลยจึงตกไปเป็น
       // waiting ทำให้งานที่กำลังซ่อมอยู่โชว์ป้าย "รอจัดสรรช่าง" ผิด ๆ
@@ -71,6 +79,11 @@ class RepairStatusHelper {
     switch (status) {
       case RepairStatus.inProgress:
         return AppColors.blueBg;
+      // 🆕 [ใหม่] สีฟ้าเดียวกับที่ widgets.dart/repair_list_admin.dart ใช้กับ
+      // 'กำลังเดินทาง' — แยกจาก "กำลังดำเนินการ" (น้ำเงินเข้ม) ให้ชัดเจนว่า
+      // เป็นคนละขั้นตอนกัน
+      case RepairStatus.traveling:
+        return const Color(0xFFDCEEFF);
       case RepairStatus.scheduledPending:
         return const Color(0xFFFFF7ED);
       case RepairStatus.overdue:
@@ -90,6 +103,8 @@ class RepairStatusHelper {
     switch (status) {
       case RepairStatus.inProgress:
         return AppColors.blueText;
+      case RepairStatus.traveling:
+        return const Color(0xFF1D4ED8);
       case RepairStatus.scheduledPending:
         return const Color(0xFFEA580C);
       case RepairStatus.overdue:

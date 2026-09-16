@@ -205,7 +205,6 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
     // เงื่อนไขที่ 2: ต้องถึงคิวงานนี้แล้วเท่านั้น (ใช้ระบบคิวจริงตาม approved_at
     // ถ้าช่างมีงานนัดวันเดียวกันหลายงาน ลูกค้าจะติดตามตำแหน่งช่างได้เฉพาะตอนที่
     // งานของตัวเองเป็นคิวที่ 1 (อนุมัติก่อนสุดในบรรดางานที่ยังไม่เสร็จวันนั้น) เท่านั้น
-    final status = repair['status'] as String?;
     // 🐛 [แก้บัค] เดิมอ่าน map['id'] ตรง ๆ อาจไม่ตรงกับคีย์จริงใน Firebase ของ
     // record นี้ ทำให้เช็คคิวงาน (getQueueInfo) ผิดใบ — ใช้ resolveRecordId()
     // ที่ยึดคีย์จริงเป็นหลักแทน
@@ -213,9 +212,15 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
     if (repairId != null) {
       final queueInfo = await db.DatabaseHelper.instance.getQueueInfo(repairId);
       final isMyTurn = queueInfo.position == 1;
-      final isPhysicallyStarted =
-          status == 'กำลังซ่อม' || status == 'กำลังเดินทาง';
-      if (!isMyTurn && !isPhysicallyStarted) {
+      // 🐛 [แก้บัค] เดิมมีเงื่อนไขข้อยกเว้น "isPhysicallyStarted" (status ==
+      // 'กำลังซ่อม'/'กำลังเดินทาง') ที่ปล่อยผ่านได้แม้ยังไม่ถึงคิว — แต่เพราะ
+      // getEffectiveRepairStatus() ใน services.dart (ตอนนั้น) บังคับคืนค่า
+      // 'กำลังซ่อม' ให้ทุกงานของช่างที่ตรงกับวันนัดวันนี้เสมอ (ไม่ว่าจะถึงคิวจริง
+      // หรือยัง) เงื่อนไขนี้เลยเป็นจริงตลอดเวลาโดยไม่ได้ตั้งใจ ทำให้ลูกค้าเห็น
+      // ตำแหน่งช่างได้ก่อนถึงคิวของตัวเอง (ทั้งที่ช่างยังอยู่ระหว่างทำงานคิวก่อน
+      // หน้าอยู่) — ตัดเงื่อนไขนี้ทิ้ง ยึด isMyTurn (คิวที่ 1 เท่านั้น) เป็นเกณฑ์
+      // เดียวแทน (ฝั่ง services.dart ก็แก้ไม่ให้บังคับสถานะแบบนั้นแล้วเช่นกัน)
+      if (!isMyTurn) {
         setState(() {
           _errorMessage =
               'ยังไม่ถึงคิวงานของคุณ\nขณะนี้อยู่คิวที่ ${queueInfo.position} จาก ${queueInfo.total} งานของวันนี้';

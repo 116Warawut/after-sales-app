@@ -1,44 +1,270 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { X, User, Wrench, UserCog, Calendar, MapPin, AlertTriangle, Loader2, Navigation, ImageOff, ChevronLeft, ChevronRight, FileText, Bike } from "lucide-react";
-import { STATUS_BADGE, SEVERITY_BADGE, extractSeverity, displayStatus, extractRating, displayStoredDate, GEOAPIFY_API_KEY } from "../shared/constants";
-import { assignTechnicianToRepair, logActivity, createNotification, getWebSettings } from "../services/firebaseDb";
+import {
+  X,
+  MapPin,
+  User,
+  Wrench,
+  FileText,
+  Navigation,
+  MessageSquare,
+  ShieldAlert,
+  Loader2,
+} from "lucide-react";
+import {
+  GEOAPIFY_API_KEY,
+  STATUS_BADGE,
+  SEVERITY_BADGE,
+  displayStatus,
+  extractSeverity,
+  displayStoredDate,
+  extractRating,
+} from "../shared/constants";
+import { StarRating, DateField, TimeField } from "./ui";
+import useDbList from "../hooks/useDbList";
+import { assignTechnicianToRepair } from "../services/firebaseDb";
 import { getSessionAdmin } from "../services/session";
-import { StarRating, DateField } from "./ui";
 
 // ---------------------------------------------------------------------------
-// 🎨 ภาพรวมสไตล์หน้านี้: modal popup กลางจอ (ไม่ได้ใช้ Modal จาก components/ui.jsx
-// เพราะต้องการโครง header สีเทาแยกต่างหากสำหรับ badge สถานะ/ความเร่งด่วนบนสุด)
-// แต่ละแถวข้อมูล (Row ด้านล่าง) มีเส้นคั่นบาง ๆ (border-slate-50) คั่นระหว่างกัน
-// 🔴 [แก้ไข] เพิ่มส่วน "มอบหมายช่าง" ด้านล่างสุด — เดิม modal นี้ดูข้อมูลได้
-// อย่างเดียว มอบหมายช่างให้งานที่ยังไม่มีคนรับผิดชอบไม่ได้เลยจากหน้าเว็บ
-// 🔴 [แก้ไข] เพิ่มแผนที่ตำแหน่งงาน + ตำแหน่งช่าง — เช็กกับซอร์ส Flutter จริงแล้ว
-// (lib/screens/customer/technician_tracking.dart) ว่าเก็บพิกัดปลายทางไว้ที่
-// repairs.dest_lat/dest_lng (ลูกค้ายืนยันตำแหน่งตอนแจ้งซ่อม บังคับกรอกเสมอ) และ
-// พิกัดช่างสดที่ technicians.current_lat/current_lng (ไม่มี field เก็บเวลา
-// อัปเดตล่าสุด ใช้ค่าปัจจุบันในฐานข้อมูลตรง ๆ) — ใช้ OpenStreetMap embed แบบ
-// iframe (ไม่ต้องมี API key/ไลบรารีใหม่) โชว์ปักหมุดจุดหมาย + คำนวณระยะห่างช่าง
-// แบบเส้นตรง (Haversine) พร้อมปุ่มเปิดเส้นทางเต็มใน Google Maps
-// 🔴 [แก้ไข] เพิ่มแกลเลอรีรูปภาพที่ลูกค้าแนบมาตอนแจ้งซ่อม — เช็กกับซอร์ส Flutter
-// จริงแล้ว (lib/screens/customer/repair_form.dart) ว่าเก็บไว้ที่ repairs.images
-// เป็น string คั่นด้วยจุลภาค (ลิงก์ Cloudinary หลายรูปต่อกัน ไม่ใช่ array จริง ๆ
-// ใน Firebase) เดิม modal นี้ไม่เคยอ่าน field นี้เลยแม้แต่นิดเดียว จึงไม่เคยมี
-// รูปโชว์ให้เห็นสักรูป — เพิ่มการ parse + แกลเลอรีธัมบ์เนล กดดูรูปเต็มได้
-// (lightbox เรียบง่าย เลื่อนดูรูปถัดไป/ก่อนหน้าได้ถ้ามีหลายรูป) พร้อมขยาย modal
-// ให้กว้างขึ้นเป็น 2 คอลัมน์บนจอใหญ่ (รายละเอียดซ้าย, รูป+แผนที่ขวา) เพื่อให้มี
-// ที่พอแสดงรูปโดยไม่บีบเนื้อหาเดิม
+// 📍 1. สร้าง Custom Marker Icons (สไตล์เดียวกับแอปมือถือ)
 // ---------------------------------------------------------------------------
 
-function parseImages(raw) {
-  if (typeof raw !== "string" || !raw.trim()) return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+// หมุดปลายทางลูกค้า (Pin สีแดง #D8232A พร้อมจุดสีขาวตรงกลาง)
+const createCustomerPinIcon = () =>
+  L.divIcon({
+    className: "custom-map-pin",
+    html: `
+      <div style="
+        position: relative;
+        width: 38px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        filter: drop-shadow(0 4px 6px rgba(0,0,0,0.35));
+        cursor: pointer;
+      ">
+        <svg width="38" height="48" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M19 0C8.50659 0 0 8.50659 0 19C0 32.5 19 48 19 48C19 48 38 32.5 38 19C38 8.50659 29.4934 0 19 0Z" fill="#D8232A"/>
+          <circle cx="19" cy="18" r="8" fill="#FFFFFF"/>
+        </svg>
+      </div>
+    `,
+    iconSize: [38, 48],
+    iconAnchor: [19, 48],
+    popupAnchor: [0, -48],
+  });
+
+// หมุดตำแหน่งช่างเทคนิค (วงกลมสีน้ำเงิน #2563EB พร้อมไอคอนรถยนต์สีขาว)
+const createTechnicianPinIcon = () =>
+  L.divIcon({
+    className: "custom-tech-pin",
+    html: `
+      <div style="
+        position: relative;
+        width: 40px;
+        height: 40px;
+        background: #2563EB;
+        border: 3px solid #FFFFFF;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.45);
+        color: white;
+      ">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/>
+          <circle cx="7" cy="17" r="2"/>
+          <path d="M9 17h6"/>
+          <circle cx="17" cy="17" r="2"/>
+        </svg>
+      </div>
+    `,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -20],
+  });
+
+// ---------------------------------------------------------------------------
+// 🗺️ 2. คอมโพเนนต์แผนที่ Leaflet + Geoapify Routing (JobLocationMap)
+// ---------------------------------------------------------------------------
+function JobLocationMap({ techLocation, customerLocation, customerAddress }) {
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [resolvedCustLoc, setResolvedCustLoc] = useState(customerLocation);
+
+  // แปลงที่อยู่ลูกค้าเป็นพิกัด (Geocoding) หากไม่มีพิกัด lat/lng มาตรงๆ
+  useEffect(() => {
+    if (customerLocation?.lat && customerLocation?.lng) {
+      setResolvedCustLoc(customerLocation);
+      return;
+    }
+    if (customerAddress && customerAddress !== "-") {
+      const geoUrl = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(
+        customerAddress
+      )}&filter=countrycode:th&lang=th&limit=1&apiKey=${GEOAPIFY_API_KEY}`;
+
+      fetch(geoUrl)
+        .then((res) => res.json())
+        .then((data) => {
+          const coords = data?.features?.[0]?.geometry?.coordinates;
+          if (coords) {
+            setResolvedCustLoc({ lat: coords[1], lng: coords[0] });
+          }
+        })
+        .catch((err) => console.error("Geocoding error:", err));
+    }
+  }, [customerLocation, customerAddress]);
+
+  // วาดแผนที่, หมุด และเส้นนำทาง
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    const defaultLat = resolvedCustLoc?.lat || 13.7563;
+    const defaultLng = resolvedCustLoc?.lng || 100.5018;
+
+    if (!mapInstanceRef.current) {
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: true,
+      }).setView([defaultLat, defaultLng], 13);
+
+      L.tileLayer(
+        `https://maps.geoapify.com/v1/tile/osm-carto/{z}/{x}/{y}.png?apiKey=${GEOAPIFY_API_KEY}`,
+        {
+          attribution: 'Powered by <a href="https://www.geoapify.com/" target="_blank">Geoapify</a>',
+          maxZoom: 20,
+        }
+      ).addTo(map);
+
+      mapInstanceRef.current = map;
+    }
+
+    const map = mapInstanceRef.current;
+
+    // เคลียร์ Layer เดิมออกก่อนวาดใหม่
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+        map.removeLayer(layer);
+      }
+    });
+
+    const bounds = [];
+
+    // 1. หมุดลูกค้า (สีแดง)
+    if (resolvedCustLoc?.lat && resolvedCustLoc?.lng) {
+      const custLatLng = [resolvedCustLoc.lat, resolvedCustLoc.lng];
+      L.marker(custLatLng, { icon: createCustomerPinIcon() })
+        .addTo(map)
+        .bindPopup("<b>สถานที่ซ่อม (ลูกค้า)</b>");
+      bounds.push(custLatLng);
+    }
+
+    // 2. หมุดช่าง (สีน้ำเงิน)
+    if (techLocation?.lat && techLocation?.lng) {
+      const techLatLng = [techLocation.lat, techLocation.lng];
+      L.marker(techLatLng, { icon: createTechnicianPinIcon() })
+        .addTo(map)
+        .bindPopup("<b>ตำแหน่งช่างเทคนิค</b>");
+      bounds.push(techLatLng);
+    }
+
+    // 3. วาดเส้นนำทางสีแดงหนา (Routing API)
+    if (
+      techLocation?.lat &&
+      techLocation?.lng &&
+      resolvedCustLoc?.lat &&
+      resolvedCustLoc?.lng
+    ) {
+      const routingUrl = `https://api.geoapify.com/v1/routing?waypoints=${techLocation.lat},${techLocation.lng}|${resolvedCustLoc.lat},${resolvedCustLoc.lng}&mode=drive&apiKey=${GEOAPIFY_API_KEY}`;
+
+      fetch(routingUrl)
+        .then((res) => res.json())
+        .then((data) => {
+          const feature = data?.features?.[0];
+          if (!feature) return;
+
+          const routeCoords = [];
+          const geom = feature.geometry;
+
+          if (geom.type === "MultiLineString") {
+            geom.coordinates.forEach((line) => {
+              line.forEach(([lng, lat]) => routeCoords.push([lat, lng]));
+            });
+          } else if (geom.type === "LineString") {
+            geom.coordinates.forEach(([lng, lat]) => routeCoords.push([lat, lng]));
+          }
+
+          if (routeCoords.length > 0) {
+            // เส้นเงาใต้เส้นทาง
+            L.polyline(routeCoords, {
+              color: "#B22121",
+              weight: 8,
+              opacity: 0.35,
+              lineCap: "round",
+              lineJoin: "round",
+            }).addTo(map);
+
+            // เส้นนำทางหลักสีแดงสด (#D8232A)
+            const mainLine = L.polyline(routeCoords, {
+              color: "#D8232A",
+              weight: 6,
+              opacity: 0.95,
+              lineCap: "round",
+              lineJoin: "round",
+            }).addTo(map);
+
+            map.fitBounds(mainLine.getBounds(), { padding: [45, 45] });
+
+            setRouteInfo({
+              distanceKm: (feature.properties.distance / 1000).toFixed(1),
+              timeMin: Math.round(feature.properties.time / 60),
+            });
+          }
+        })
+        .catch((err) => console.error("Routing error:", err));
+    } else if (bounds.length > 0) {
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+    }
+
+    // ปรับขนาดแผนที่ให้พอดีกับ Modal หลังเรนเดอร์
+    setTimeout(() => map.invalidateSize(), 250);
+  }, [techLocation?.lat, techLocation?.lng, resolvedCustLoc?.lat, resolvedCustLoc?.lng]);
+
+  return (
+    <div className="relative w-full h-[320px] rounded-2xl overflow-hidden border border-slate-200">
+      <div ref={mapContainerRef} className="w-full h-full" />
+
+      {routeInfo && (
+        // 🐛 [แก้ไข] BUG: กล่องนี้ใช้ class สี Tailwind ธรรมดา (text-slate-500,
+        // bg-white ฯลฯ) ซึ่งเว็บนี้มี CSS ของโหมดมืดที่ override สีพวกนี้แบบรวม
+        // ทั้งเว็บ (index.css, ".dark .text-slate-500" ฯลฯ) พอเปิดโหมดมืดเลย
+        // ทำให้ข้อความในกล่องนี้เปลี่ยนสีตามไปด้วยทั้งที่อยากให้เป็นกล่องขาว/
+        // ข้อความเข้มเหมือนโหมดสว่างเสมอ (ลอยอยู่บนแผนที่ ไม่ใช่พื้นหลังเว็บ)
+        // แก้โดยเปลี่ยนมาใช้ inline style ล้วนแทน class สี เพราะ CSS ของโหมดมืด
+        // เลือกจับเฉพาะ class name เท่านั้น ไม่แตะ inline style เลย
+        <div
+          className="absolute top-3 right-3 backdrop-blur-sm px-3.5 py-2 rounded-xl shadow-md z-[1000] text-xs space-y-0.5"
+          style={{ background: "rgba(255,255,255,0.95)", border: "1px solid #f1f5f9" }}
+        >
+          <p style={{ color: "#64748b", margin: 0 }}>
+            ระยะทาง: <span style={{ fontWeight: 600, color: "#1e293b" }}>{routeInfo.distanceKm} กม.</span>
+          </p>
+          <p style={{ color: "#64748b", margin: 0 }}>
+            เวลาเดินทางโดยประมาณ: <span style={{ fontWeight: 600, color: "#dc2626" }}>{routeInfo.timeMin} นาที</span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
-// 🔴 [ใหม่] แปลง Date → ค่าที่ <input type="date"> ต้องการ ("YYYY-MM-DD")
+// ---------------------------------------------------------------------------
+// 🕓 3. ตัวช่วยแปลงวันที่ ISO ("YYYY-MM-DD" จาก DateField) <-> รูปแบบไทยที่
+// เก็บจริงในฟิลด์ "date" ("D/M/ปีพ.ศ." เช่น "16/9/2569")
+// ---------------------------------------------------------------------------
 function toDateInputValue(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -46,34 +272,61 @@ function toDateInputValue(d) {
   return `${y}-${m}-${day}`;
 }
 
-// 🔴 [ใหม่] แปลงค่าจาก <input type="date"> ("YYYY-MM-DD") กลับเป็นรูปแบบไทย
-// "D/M/พ.ศ." ให้ตรงกับ field "date" ที่ใช้กันอยู่แล้วทั้งระบบ (parseThaiDate ที่
-// หน้าอื่น ๆ ใช้กรอง/เรียงงาน คาดหวังรูปแบบนี้เป๊ะ)
-function formatThaiDate(isoDateStr) {
-  const [y, m, d] = isoDateStr.split("-").map(Number);
+function isoToThaiDate(iso) {
+  const parts = String(iso).split("-").map(Number);
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return "";
   return `${d}/${m}/${y + 543}`;
 }
 
-function formatReportDate(rawDate) {
-  if (!rawDate) return "";
-  const d = new Date(rawDate);
-  if (isNaN(d.getTime())) return String(rawDate);
-  // 🔴 [แก้ไข] ตัดตัวเลือกปี ค.ศ. ออกทั้งระบบตามที่ขอ — locale "th-TH" ให้ปี
-  // พ.ศ. เป็นค่าเริ่มต้นอยู่แล้ว เลยไม่ต้องระบุ calendar เพิ่มอีกต่อไป
-  const opts = { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" };
-  return d.toLocaleString("th-TH", opts);
+// 🐛 [แก้ไข] BUG: ที่อยู่ใน กทม. ขึ้นเป็น "ตำบล/อำเภอ" ทั้งที่ควรเป็น "แขวง/เขต"
+// — ตรวจกับซอร์ส Flutter แล้ว (repair_form.dart) พบว่าฟอร์มแจ้งซ่อมของแอปมือถือ
+// เขียนคำนำหน้า "ตำบล"/"อำเภอ"/"จังหวัด" ตายตัวเสมอไม่ว่าจังหวัดไหน (เพื่อช่วย
+// การค้นหาพิกัดผ่าน Geoapify ให้แม่นขึ้น) ทำให้ที่อยู่กรุงเทพฯ ที่บันทึกไว้จริง
+// อยู่ในรูป "...ตำบลบางรัก อำเภอปทุมวัน จังหวัดกรุงเทพมหานคร..." เว็บนี้เลย
+// แปลงคำนำหน้าใหม่เฉพาะตอนแสดงผล (ไม่แตะข้อมูลที่เก็บจริง) ให้ตรงกับรูปแบบที่
+// ใช้จริงใน กทม. เหมือนที่หน้าลูกค้า/ช่างของเว็บนี้เองก็ทำอยู่แล้ว (formatAddress
+// ใน CustomersPage.jsx/TechniciansPage.jsx)
+function formatBangkokAddress(address) {
+  if (!address || typeof address !== "string" || address === "-") return address;
+  if (!address.includes("กรุงเทพ")) return address;
+  return address
+    .replace(/ตำบล/g, "แขวง")
+    .replace(/อำเภอ/g, "เขต")
+    .replace(/จังหวัดกรุงเทพ/g, "กรุงเทพ");
 }
 
-// 🐛 [แก้ไข] BUG: เดิมเดาชื่อ field ไว้หลายแบบ (report_detail/repair_report/
-// tech_report ฯลฯ) เพราะยังไม่เคยเช็กกับซอร์ส Flutter จริง เลยไม่เคยขึ้นข้อมูล
-// เลยสักครั้งทั้งที่ช่างส่งรายงานมาจริง — เช็กกับ services.dart
-// (submitRepairReport()) แล้ว ชื่อ field จริงคือ report_problem_detail /
-// report_before_photo / report_after_photo / report_slip_photo /
-// report_submitted_at / report_form_code แก้ให้ตรงเป๊ะ ห้ามเดาอีก
-function getRepairReport(job) {
-  if (!job) {
-    return { text: "", beforePhoto: "", afterPhoto: "", slipPhoto: "", formCode: "", reportedAt: "" };
+// 🐛 [แก้ไข] BUG: รูปประกอบไม่ขึ้นฝั่งเว็บ — เช็คกับซอร์ส Flutter จริงแล้ว
+// (repair_form.dart) พบว่าแอปมือถือเก็บฟิลด์ชื่อ "images" ก็จริง แต่เก็บเป็น
+// String เดียวคั่นด้วยจุลภาค (imageUrls.join(',')) ไม่ใช่ Array เลย โค้ดเดิม
+// เช็ค Array.isArray(job.images) จึงไม่ผ่านทุกครั้ง แล้วตกไปหาฟิลด์เดี่ยว
+// (photo_url_1 ฯลฯ) ที่ไม่มีอยู่จริง สุดท้ายเลยไม่มีรูปขึ้นเลยแม้ลูกค้าแนบมาจริง
+// แก้โดยรองรับ "images" แบบ String คั่นจุลภาคเป็นหลัก เหลือแบบ Array/ฟิลด์เดี่ยว
+// ไว้เป็น fallback เผื่อกรณีอื่น
+function getProblemPhotos(job) {
+  if (typeof job.images === "string" && job.images.trim()) {
+    const urls = job.images.split(",").map((u) => u.trim()).filter(Boolean);
+    if (urls.length) return urls.slice(0, 6);
   }
+  const arrayCandidates = [job.photos, job.problem_photos, job.images, job.photo_urls];
+  for (const arr of arrayCandidates) {
+    if (Array.isArray(arr) && arr.length) return arr.filter(Boolean).slice(0, 6);
+  }
+  const singles = [];
+  for (let i = 1; i <= 6; i++) {
+    const url = job[`photo_url_${i}`] || job[`photo_${i}`] || job[`image_${i}`];
+    if (url) singles.push(url);
+  }
+  return singles;
+}
+
+// 🐛 [แก้ไข] BUG: ชื่อฟิลด์ชุด "รายงานการซ่อม" ชุดนี้เคยเช็คกับซอร์ส Flutter
+// จริงมาแล้วรอบก่อน (services.dart -> submitRepairReport()) ยืนยันแล้วว่าชื่อ
+// ฟิลด์จริงคือ report_problem_detail / report_before_photo / report_after_photo
+// / report_slip_photo / report_submitted_at / report_form_code — แต่ตอนแก้
+// เรื่องแผนที่ล่าสุด ไฟล์นี้ถูกเขียนทับใหม่ทั้งไฟล์ทำให้โค้ดจุดนี้หายไปด้วย
+// เอากลับมาใช้ต่อเหมือนเดิมทุกประการ ห้ามเดาใหม่
+function getRepairReport(job) {
   const text = typeof job.report_problem_detail === "string" ? job.report_problem_detail.trim() : "";
   return {
     text,
@@ -81,593 +334,436 @@ function getRepairReport(job) {
     afterPhoto: job.report_after_photo || "",
     slipPhoto: job.report_slip_photo || "",
     formCode: job.report_form_code || "",
-    reportedAt: formatReportDate(job.report_submitted_at || ""),
+    reportedAt: job.report_submitted_at || "",
   };
 }
 
-function PhotoGallery({ images }) {
-  const [lightboxIndex, setLightboxIndex] = useState(null);
-
-  if (images.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-slate-200 py-10 flex flex-col items-center justify-center text-slate-300">
-        <ImageOff size={28} className="mb-2" />
-        <p className="text-xs text-slate-400">ลูกค้าไม่ได้แนบรูปภาพมากับงานนี้</p>
-      </div>
-    );
+// 🐛 [แก้ไข] ยืนยันกับซอร์ส Flutter จริงแล้ว (services.dart -> markRepairProblem())
+// ชื่อฟิลด์จริงคือ "problem_note" (ข้อความ) และ "problem_photos" (รูปประกอบ)
+// — โดย problem_photos เก็บเป็น String เดียวคั่นด้วยจุลภาค (เหมือนฟิลด์ "images"
+// ของฟอร์มแจ้งซ่อมลูกค้า) ไม่ใช่ Array เลย ตามที่เดาไว้แต่แรก แก้ให้อ่านตรงกับ
+// ของจริงแล้ว (เดิมยังไม่เคยส่งรูปขึ้นมาจากฝั่งแอปเลยด้วยซ้ำ เพิ่งเพิ่มพร้อมกัน)
+function getIssueReport(job) {
+  const detail = job.problem_note || "";
+  let photos = [];
+  if (typeof job.problem_photos === "string" && job.problem_photos.trim()) {
+    photos = job.problem_photos.split(",").map((u) => u.trim()).filter(Boolean);
   }
-
-  return (
-    <>
-      <div className="grid grid-cols-3 gap-2">
-        {images.map((url, i) => (
-          <button
-            key={i}
-            onClick={() => setLightboxIndex(i)}
-            className="aspect-square rounded-lg overflow-hidden border border-slate-100 hover:opacity-80 transition-opacity"
-          >
-            <img src={url} alt={`รูปที่ ${i + 1}`} className="w-full h-full object-cover" />
-          </button>
-        ))}
-      </div>
-
-      {/* 🔍 Lightbox ดูรูปเต็ม — z-[60] สูงกว่า modal หลัก (z-50) ให้ลอยทับได้ */}
-      {lightboxIndex !== null ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setLightboxIndex(null)}
-        >
-          <button
-            onClick={() => setLightboxIndex(null)}
-            className="absolute top-4 right-4 text-white/80 hover:text-white"
-          >
-            <X size={24} />
-          </button>
-          {images.length > 1 ? (
-            <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxIndex((lightboxIndex - 1 + images.length) % images.length);
-                }}
-                className="absolute left-4 text-white/80 hover:text-white"
-              >
-                <ChevronLeft size={28} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxIndex((lightboxIndex + 1) % images.length);
-                }}
-                className="absolute right-4 text-white/80 hover:text-white"
-              >
-                <ChevronRight size={28} />
-              </button>
-            </>
-          ) : null}
-          <img
-            src={images[lightboxIndex]}
-            alt={`รูปที่ ${lightboxIndex + 1}`}
-            className="max-w-full max-h-full rounded-lg"
-            onClick={(e) => e.stopPropagation()}
-          />
-          {images.length > 1 ? (
-            <p className="absolute bottom-4 text-white/70 text-xs">{lightboxIndex + 1} / {images.length}</p>
-          ) : null}
-        </div>
-      ) : null}
-    </>
-  );
+  return { detail, photos: photos.slice(0, 4) };
 }
 
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+// ---------------------------------------------------------------------------
+// 🔴 [แก้ไข] กล่อง "ช่างผู้รับผิดชอบ" — เดิมตอนยังไม่มีช่างต้องกดปุ่ม "เลือก
+// ช่าง" ก่อนถึงจะโผล่ดรอปดาวน์เลือกช่างขึ้นมา ตัดปุ่มออกตามที่ขอ ให้โชว่
+// ดรอปดาวน์เลือกช่างตรงๆ ทันทีเลยตอนยังไม่มีช่าง (ไม่ต้องกดอะไรก่อน) ส่วน
+// ลำดับที่เหลือยังเหมือนเดิม: เลือกช่างแล้วปฏิทินโผล่มา -> เลือกวันแล้วเวลา
+// โผล่ตามมา -> เลือกเวลาแล้วปุ่มยืนยันมอบหมายค่อยโผล่
+// ---------------------------------------------------------------------------
+function TechnicianAssignBox({ job, technicians, currentTech }) {
+  const [techUsername, setTechUsername] = useState("");
+  const [dateIso, setDateIso] = useState("");
+  const [time, setTime] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-// 🔵/🔴 ไอคอนหมุดแบบ DivIcon (ไม่ต้องพึ่งไฟล์รูป marker ของ Leaflet ที่มักมีปัญหา
-// path หายตอน build ด้วย Vite) — สีและสัญลักษณ์ตรงกับฝั่งมือถือ (route_map_view.dart):
-// ช่าง = วงกลมสีฟ้า ไอคอนมอเตอร์ไซค์, ลูกค้า = วงกลมสีน้ำเงินเข้ม ไอคอนหมุด
-function pinDivIcon(color, symbol) {
-  return L.divIcon({
-    className: "",
-    html:
-      `<div style="width:32px;height:32px;border-radius:50%;background:${color};` +
-      `border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.35);` +
-      `display:flex;align-items:center;justify-content:center;font-size:16px;">${symbol}</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-  });
-}
-const TECH_ICON = pinDivIcon("#2563eb", "🛵");
-const DEST_ICON = pinDivIcon("#3b82f6", "📍");
-
-// 🔴 [แก้ไข] เดิม JobLocationMap เป็นแค่ iframe ฝัง OpenStreetMap แบบ static —
-// ปักหมุดได้แค่จุดหมาย (ลูกค้า) เท่านั้น ไม่เคยปักหมุดตำแหน่งช่างบนแผนที่จริง
-// เลยสักครั้ง (ใช้พิกัดช่างแค่คำนวณระยะเส้นตรงไว้โชว์เป็นตัวเลข) ทำให้แอดมิน
-// "มองไม่เห็น" ตำแหน่งช่างบนแผนที่จริง ๆ ต่างจากฝั่งมือถือที่ช่าง/ลูกค้าเห็น
-// หมุดกันแบบ real-time (technician_tracking.dart / customer_tracking.dart)
-// — เปลี่ยนมาใช้ Leaflet (แผนที่โต้ตอบได้จริง ซูม/ลากได้) + ไทล์จาก Geoapify
-// (ผู้ให้บริการเดียวกับที่แอปมือถือใช้) ปักหมุดทั้งช่างและลูกค้า พร้อมเส้นทาง
-// จริงบนถนนจาก Geoapify Routing API (เหมือน GeoapifyService.getRouteInfo ฝั่ง
-// Flutter เป๊ะ) ตำแหน่งช่างจะขยับตามพิกัดล่าสุดที่ได้จาก useDbList("technicians")
-// ของหน้าแม่ (real-time จาก Firebase อยู่แล้ว) — refetch เส้นทางใหม่เฉพาะตอน
-// ช่างขยับเกิน ~30 เมตร กันยิง API รัวเกินไปเวลาพิกัด GPS สั่นนิดหน่อย
-function JobLocationMap({ job, technician }) {
-  const destLat = Number(job.dest_lat);
-  const destLng = Number(job.dest_lng);
-  const hasDest = Number.isFinite(destLat) && Number.isFinite(destLng);
-
-  const techLat = Number(technician?.current_lat);
-  const techLng = Number(technician?.current_lng);
-  const hasTech = Number.isFinite(techLat) && Number.isFinite(techLng);
-
-  const mapContainerRef = useRef(null);
-  const mapRef = useRef(null);
-  const techMarkerRef = useRef(null);
-  const destMarkerRef = useRef(null);
-  const routeLineRef = useRef(null);
-  const lastRoutedRef = useRef(null); // {lat, lng} จุดล่าสุดที่ขอเส้นทางไปแล้ว
-
-  const [routeInfo, setRouteInfo] = useState(null); // {distanceKm, minutes}
-  const [routeError, setRouteError] = useState(false);
-
-  // 🗺️ สร้างแผนที่ครั้งเดียวตอน mount (ถ้ามีจุดหมาย)
-  useEffect(() => {
-    if (!hasDest || !mapContainerRef.current || mapRef.current) return;
-
-    const map = L.map(mapContainerRef.current, {
-      center: [destLat, destLng],
-      zoom: 14,
-      attributionControl: true,
-    });
-    L.tileLayer(
-      `https://maps.geoapify.com/v1/tile/osm-carto/{z}/{x}/{y}.png?apiKey=${GEOAPIFY_API_KEY}`,
-      { maxZoom: 20, attribution: "Powered by Geoapify | © OpenStreetMap contributors" }
-    ).addTo(map);
-
-    destMarkerRef.current = L.marker([destLat, destLng], { icon: DEST_ICON }).addTo(map);
-    mapRef.current = map;
-
-    return () => {
-      map.remove();
-      mapRef.current = null;
-      techMarkerRef.current = null;
-      destMarkerRef.current = null;
-      routeLineRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasDest, destLat, destLng]);
-
-  // 📍 อัปเดต/สร้างหมุดช่างเมื่อพิกัดเปลี่ยน + ขอเส้นทางใหม่จาก Geoapify ถ้าขยับ
-  // ไปพอสมควรแล้ว (เหมือน technician_tracking.dart ฝั่งมือถือ)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !hasDest) return;
-
-    if (!hasTech) {
-      if (techMarkerRef.current) {
-        map.removeLayer(techMarkerRef.current);
-        techMarkerRef.current = null;
-      }
-      return;
-    }
-
-    if (techMarkerRef.current) {
-      techMarkerRef.current.setLatLng([techLat, techLng]);
-    } else {
-      techMarkerRef.current = L.marker([techLat, techLng], { icon: TECH_ICON }).addTo(map);
-    }
-
-    const bounds = L.latLngBounds([[destLat, destLng], [techLat, techLng]]);
-    map.fitBounds(bounds, { padding: [48, 48] });
-
-    const movedMeters = lastRoutedRef.current
-      ? haversineKm(lastRoutedRef.current.lat, lastRoutedRef.current.lng, techLat, techLng) * 1000
-      : Infinity;
-    if (movedMeters < 30) return;
-    lastRoutedRef.current = { lat: techLat, lng: techLng };
-
-    const url =
-      `https://api.geoapify.com/v1/routing?waypoints=${techLat},${techLng}%7C${destLat},${destLng}` +
-      `&mode=drive&apiKey=${GEOAPIFY_API_KEY}`;
-
-    let cancelled = false;
-    fetch(url)
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then((data) => {
-        if (cancelled) return;
-        const feature = data?.features?.[0];
-        if (!feature) throw new Error("no route feature");
-        const distanceKm = feature.properties.distance / 1000;
-        const minutes = Math.round(feature.properties.time / 60);
-        setRouteInfo({ distanceKm, minutes });
-        setRouteError(false);
-
-        const geometry = feature.geometry;
-        const lines = geometry?.type === "MultiLineString" ? geometry.coordinates : geometry?.type === "LineString" ? [geometry.coordinates] : [];
-        const latlngs = lines.flat().map(([lng, lat]) => [lat, lng]);
-        if (routeLineRef.current) map.removeLayer(routeLineRef.current);
-        if (latlngs.length >= 2) {
-          routeLineRef.current = L.polyline(latlngs, { color: "#3b82f6", weight: 5 }).addTo(map);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setRouteError(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hasDest, hasTech, destLat, destLng, techLat, techLng]);
-
-  if (!hasDest) return null;
-
-  const straightLineKm = hasTech ? haversineKm(destLat, destLng, techLat, techLng) : null;
-  const directionsUrl = hasTech
-    ? `https://www.google.com/maps/dir/?api=1&origin=${techLat},${techLng}&destination=${destLat},${destLng}`
-    : `https://www.google.com/maps/search/?api=1&query=${destLat},${destLng}`;
-
-  return (
-    <div className="mt-6">
-      <p className="text-sm font-semibold text-slate-700 mb-3">ตำแหน่งงานซ่อม{hasTech ? " และช่าง (เรียลไทม์)" : ""}</p>
-      <div ref={mapContainerRef} className="w-full h-56 rounded-xl overflow-hidden border border-slate-100" />
-      <div className="flex items-center justify-between mt-2 gap-2">
-        {hasTech ? (
-          <p className="text-xs text-slate-500 flex items-center gap-1">
-            <Bike size={12} className="text-blue-500" />
-            {routeInfo
-              ? `ช่างอยู่ห่างจากจุดหมาย ${routeInfo.distanceKm.toFixed(1)} กม. • ประมาณ ${routeInfo.minutes} นาที`
-              : routeError
-              ? `ห่างจากจุดหมาย ~${straightLineKm.toFixed(1)} กม. (ระยะเส้นตรง)`
-              : "กำลังคำนวณเส้นทาง..."}
-          </p>
-        ) : (
-          <p className="text-xs text-slate-400">ยังไม่มีตำแหน่ง GPS ล่าสุดของช่าง</p>
-        )}
-        <a
-          href={directionsUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-xs text-blue-500 font-medium hover:text-blue-600 shrink-0"
-        >
-          <Navigation size={12} />
-          เปิดใน Google Maps
-        </a>
-      </div>
-    </div>
-  );
-}
-
-function Row({ icon: Icon, label, value }) {
-  return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-slate-50 last:border-0">
-      <Icon size={16} className="text-slate-400 mt-0.5 shrink-0" />
-      <div className="min-w-0">
-        <p className="text-xs text-slate-400">{label}</p>
-        <p className="text-[15px] text-slate-800 break-words">{value || "-"}</p>
-      </div>
-    </div>
-  );
-}
-
-export default function JobDetailModal({ job, technicians = [], onClose, onAssigned }) {
-  const [selectedTech, setSelectedTech] = useState("");
-  // 🔴 [ใหม่] วันนัด/เวลานัด — กรอกได้ต่อเมื่อเลือกช่างแล้วเท่านั้น (ตามลำดับ
-  // ขั้นตอนที่ขอ: เลือกช่างก่อน ค่อยเลือกวันนัดทีหลัง) ค่า appointmentDate เป็น
-  // ISO string ("YYYY-MM-DD") ตรงกับ <input type="date"> โดยตรง ส่วนตอนบันทึก
-  // ลงฐานข้อมูลจะแปลงเป็นรูปแบบไทย "D/M/พ.ศ." ให้ตรงกับ field "date" (วันนัด
-  // หมาย) ที่ใช้อยู่แล้วทั้งระบบ (parseThaiDate ในหน้าอื่น ๆ คาดหวังรูปแบบนี้)
-  const [appointmentDate, setAppointmentDate] = useState("");
-  // 🔴 [แก้ไข] เปลี่ยนจาก <input type="time"> (ระบบ 00-23 น. แบบสากล) เป็น
-  // dropdown ชั่วโมง/นาทีแยกกันแทน ตามที่ขอให้เป็นเวลาแบบไทย 01-24 น. (24.00
-  // หมายถึงเที่ยงคืน แทนที่จะเป็น 00.00) — เก็บแยก 2 ค่านี้แล้วค่อยประกอบเป็น
-  // string ตอนจะใช้งานจริง (ดู appointmentTime ด้านล่าง)
-  const [appointmentHour, setAppointmentHour] = useState("");
-  const [appointmentMinute, setAppointmentMinute] = useState("");
-  const appointmentTime = appointmentHour && appointmentMinute ? `${appointmentHour}.${appointmentMinute}` : "";
-  const [assigning, setAssigning] = useState(false);
-  const [assignError, setAssignError] = useState("");
-  if (!job) return null;
-
-  const isCancelled = (job.status || "").includes("ยกเลิก");
-  const isDone = job.status === "เสร็จสิ้น" || job.status === "เสร็จแล้ว";
-  const reportInfo = getRepairReport(job);
-  const ratingInfo = extractRating(job);
-  // 🔴 แสดงกล่องมอบหมายช่างเฉพาะงานที่ยังไม่มีช่างและยังไม่จบ (เสร็จ/ยกเลิก) —
-  // งานที่จบไปแล้วไม่ควรให้มอบหมายช่างใหม่ทับของเดิม
-  const canAssign = !job.technician_username && !isCancelled && !isDone;
-  // ใช้หาตำแหน่ง GPS สดของช่างที่รับผิดชอบงานนี้ (technicians.current_lat/lng)
-  const assignedTechnician = technicians.find((t) => t.username === job.technician_username);
-
-  // ห้ามเลือกวันย้อนหลัง — วันนี้เป็นค่าต่ำสุดที่เลือกได้ (ตามที่ขอ "ตั้งวันนี้
-  // เป็นต้นไป")
-  const todayInputValue = toDateInputValue(new Date());
+  const todayIso = toDateInputValue(new Date());
 
   async function handleAssign() {
-    if (!selectedTech) {
-      setAssignError("กรุณาเลือกช่างก่อน");
-      return;
-    }
-    if (!appointmentDate || !appointmentTime) {
-      setAssignError("กรุณาเลือกวันและเวลานัดหมาย");
-      return;
-    }
-    setAssignError("");
-    setAssigning(true);
+    if (!techUsername || !dateIso || !time) return;
+    setSaving(true);
+    setError("");
     try {
       const admin = getSessionAdmin();
-      const adminUsername = admin?.username || "";
-      const thaiDate = formatThaiDate(appointmentDate);
-      // 🐛 [แก้ไข] BUG: เดิมยัดอ็อบเจกต์ {date, appointment_time} เข้าไปเป็น
-      // argument ตัวที่ 4 (appointmentDate) ของ assignTechnicianToRepair()
-      // ตรงๆ — แต่ signature จริงของฟังก์ชัน (firebaseDb.js) คือ (repairId,
-      // technicianUsername, adminUsername, appointmentDate, extraData) ทำให้
-      // เกิด 2 บั๊กซ้อนกัน: (1) appointmentDate ที่ควรเป็นสตริงวันที่ กลาย
-      // เป็นอ็อบเจกต์ทั้งก้อน ทำให้ compareAppointmentDate() คำนวณสถานะเริ่มต้น
-      // ผิด (parseThaiDate แปลงอ็อบเจกต์ไม่ได้ กลายเป็น "today" เสมอ) และ (2)
-      // extraData (argument ตัวที่ 5 ตัวจริง) ไม่เคยได้รับค่าเลย เท่ากับ
-      // date/appointment_time ที่กรอกไว้ไม่เคยถูกบันทึกลง Firebase จริงๆ สักครั้ง
-      // — ย้าย thaiDate ไปเป็น argument ตัวที่ 4 ตามตำแหน่งจริง แล้วส่ง
-      // {date, appointment_time} เป็นตัวที่ 5 (extraData) แทน
-      await assignTechnicianToRepair(job.id, selectedTech, adminUsername, thaiDate, {
-        date: thaiDate,
-        appointment_time: appointmentTime,
+      const thaiDate = isoToThaiDate(dateIso);
+      await assignTechnicianToRepair(job.id, techUsername, admin?.username || "admin", thaiDate, {
+        time,
       });
-      // 📝 [ใหม่] บันทึก activity log — ใครมอบหมายช่างให้งานไหนเมื่อไหร่
-      logActivity({
-        adminUsername,
-        adminName: admin?.admin_name,
-        action: "มอบหมายช่าง",
-        target: `${job.ticketNo || `#${job.id}`} → ${selectedTech} (นัด ${thaiDate} ${appointmentTime})`,
-      }).catch((err) => console.error("[JobDetailModal] log activity failed:", err));
-      // 🔔 [ใหม่] แจ้งเตือน (+ push) ให้ทั้งช่างที่ถูกมอบหมายและลูกค้ารู้ทันที —
-      // เดิมมอบหมายช่างจากเว็บแล้วเงียบสนิท ทั้งคู่ต้องเปิดแอปมาเห็นเองถึงจะรู้
-      // เช็กสวิตช์ "แจ้งเตือนอัปเดตงานซ่อม" ในหน้าตั้งค่าก่อนยิงจริง
-      getWebSettings()
-        .then((settings) => {
-          if (settings?.notifyJob === false) return;
-          const ticketLabel = job.ticketNo || `#${job.id}`;
-          createNotification({
-            user_username: selectedTech,
-            role: "TECHNICIAN",
-            title: `งานใหม่: ${ticketLabel}`,
-            message: `คุณได้รับมอบหมายงานซ่อม ${job.machine || ""} นัดหมายวันที่ ${thaiDate} เวลา ${appointmentTime} น.`,
-            type: "JOB",
-            target_id: job.id,
-          }).catch((err) => console.error("[JobDetailModal] notify technician failed:", err));
-          if (job.customer_username) {
-            createNotification({
-              user_username: job.customer_username,
-              role: "CUSTOMER",
-              title: `งานซ่อมของคุณมีช่างแล้ว: ${ticketLabel}`,
-              message: `ช่าง ${selectedTech} รับผิดชอบงานซ่อมของคุณแล้ว นัดหมายวันที่ ${thaiDate} เวลา ${appointmentTime} น.`,
-              type: "JOB",
-              target_id: job.id,
-            }).catch((err) => console.error("[JobDetailModal] notify customer failed:", err));
-          }
-        })
-        .catch((err) => console.error("[JobDetailModal] load settings failed:", err));
-      onAssigned?.();
-      onClose();
     } catch (err) {
       console.error("[JobDetailModal] assign failed:", err);
-      setAssignError("มอบหมายช่างไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+      setError("มอบหมายไม่สำเร็จ ลองอีกครั้ง");
     } finally {
-      setAssigning(false);
+      setSaving(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      {/* 🔴 [แก้ไข] ขยาย modal กว้างขึ้นเป็น max-w-4xl บนจอใหญ่ (lg ขึ้นไป) เพื่อ
-          ให้มีที่พอวางคอลัมน์รูปภาพ+แผนที่ข้าง ๆ รายละเอียดงาน — จอเล็กยังคง
-          แคบแบบเดิม (max-w-lg) ไม่บีบจนอ่านยาก
-          🐛 [แก้ไข] BUG (ย้อนกลับมาอีกครั้งในไฟล์ล่าสุดที่อัปมา — แก้ซ้ำให้):
-          เดิมงานที่ "เสร็จสิ้น" ขยับเป็น 3 คอลัมน์ที่ระดับจอ xl (1280px) แต่จอ
-          จริงที่ใช้ดูไม่กว้างถึงระดับนั้น เลยไม่เคยเห็น 3 คอลัมน์เลย ตกลงมาเป็น
-          แถวเต็มความกว้างด้านล่างตลอด (ยืนยันแล้วว่าเป็นบั๊กจากการทดสอบจริง)
-          — เปลี่ยนมาขยับที่ระดับ lg (1024px) แทน ให้ตรงกับจุดที่ 2 คอลัมน์เดิม
-          ขึ้นอยู่แล้วพอดี (ขยาย max-w-6xl ที่ lg ไปเลยตอนงานเสร็จ ไม่ใช่ค่อย
-          ขยับต่อที่ xl อีกที) */}
-      <div className={`relative bg-white rounded-2xl shadow-xl w-full max-w-lg ${isDone ? "lg:max-w-6xl" : "lg:max-w-4xl"} max-h-[90vh] overflow-y-auto`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
-          <div>
-            <h3 className="text-base font-semibold text-slate-800">{job.ticketNo || `#${job.id}`}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">รายละเอียดงานซ่อม</p>
+    <div className="border border-slate-100 rounded-2xl p-4 space-y-3">
+      <div className="flex items-center gap-2 text-slate-800 font-semibold text-sm">
+        <Wrench size={16} className="text-orange-500" />
+        <span>ช่างผู้รับผิดชอบ</span>
+      </div>
+
+      {job.technician_username ? (
+        <div className="text-xs text-slate-600 space-y-1">
+          <p><span className="text-slate-400">ช่าง:</span> {job.technician_username}</p>
+          <p><span className="text-slate-400">เบอร์โทร:</span> {currentTech?.phone || "-"}</p>
+          <p><span className="text-slate-400">สถานะช่าง:</span> {currentTech?.status || "ว่าง"}</p>
+          {(job.date || job.time) ? (
+            <p><span className="text-slate-400">วันนัดหมาย:</span> {displayStoredDate(job.date)} {job.time || ""}</p>
+          ) : null}
+          <p><span className="text-slate-400">ยานพาหนะ:</span> {currentTech?.vehicle || "-"}</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500">ช่าง: ยังไม่ได้มอบหมาย</p>
+          <select
+            value={techUsername}
+            onChange={(e) => setTechUsername(e.target.value)}
+            disabled={saving}
+            className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="">เลือกช่างเทคนิค...</option>
+            {technicians.map((t) => (
+              <option key={t.id || t.username} value={t.username}>
+                {t.tech_name || t.name || t.username}
+              </option>
+            ))}
+          </select>
+
+          {techUsername ? (
+            <div>
+              <p className="text-[11px] font-medium text-slate-500 mb-1.5">วันนัดหมาย</p>
+              <DateField value={dateIso} min={todayIso} onChange={setDateIso} disabled={saving} />
+            </div>
+          ) : null}
+
+          {techUsername && dateIso ? (
+            <div>
+              <p className="text-[11px] font-medium text-slate-500 mb-1.5">เวลานัดหมาย</p>
+              <TimeField value={time} onChange={setTime} disabled={saving} />
+            </div>
+          ) : null}
+
+          {error ? <p className="text-[11px] text-red-500">{error}</p> : null}
+
+          {techUsername && dateIso && time ? (
+            <button
+              onClick={handleAssign}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-medium hover:bg-blue-600 disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={13} className="animate-spin" /> : null}
+              มอบหมายช่าง
+            </button>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 🆕 [ใหม่] แยกฝั่งซ้าย (ลูกค้า + ช่าง + แผนที่) ออกมาเป็นคอมโพเนนต์ย่อย เพราะ
+// ต้องใช้ซ้ำ 2 ที่ตามที่ขอ: ตอนมีรายงาน/ปัญหาแล้ว (แบ่ง 2 คอลัมน์ ฝั่งนี้แคบ
+// ลงมาเหลือ 3/5) กับตอนยังไม่มีรายงาน/ปัญหาเลย (ไม่ต้องมีคอลัมน์ขวา ฝั่งนี้
+// เต็มความกว้างแทน) — เนื้อหาข้างในเหมือนกันทุกประการ แค่ความกว้างรอบนอกต่างกัน
+// ---------------------------------------------------------------------------
+function JobLeftColumn({ job, currentCust, currentTech, technicians, customerAddress, techLoc, custLoc }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* กล่องลูกค้า */}
+        <div className="border border-slate-100 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center gap-2 text-slate-800 font-semibold text-sm">
+            <User size={16} className="text-blue-500" />
+            <span>ข้อมูลลูกค้า</span>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X size={20} />
+          <div className="text-xs text-slate-600 space-y-1">
+            <p><span className="text-slate-400">ชื่อ:</span> {job.customer_username || "-"}</p>
+            <p><span className="text-slate-400">เบอร์โทร:</span> {currentCust?.phone || "-"}</p>
+            <p className="flex items-start gap-1">
+              <MapPin size={13} className="text-slate-400 shrink-0 mt-0.5" />
+              <span className="line-clamp-2">{customerAddress}</span>
+            </p>
+          </div>
+        </div>
+
+        {/* กล่องช่าง */}
+        <TechnicianAssignBox job={job} technicians={technicians} currentTech={currentTech} />
+      </div>
+
+      {/* แผนที่ตำแหน่งงานซ่อม และ เส้นทางช่าง (Leaflet Map) */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+            <Navigation size={16} className="text-[#B22121]" />
+            ตำแหน่งงานซ่อม และช่าง (เรียลไทม์)
+          </h3>
+        </div>
+        <JobLocationMap techLocation={techLoc} customerLocation={custLoc} customerAddress={customerAddress} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 📋 4. Modal แสดงรายละเอียดงานซ่อม (JobDetailModal)
+// ---------------------------------------------------------------------------
+export default function JobDetailModal({ job: jobProp, onClose, onNavigate }) {
+  const { data: technicians } = useDbList("technicians");
+  const { data: customers } = useDbList("customers");
+  const { data: repairs } = useDbList("repairs");
+
+  if (!jobProp) return null;
+
+  // 🆕 [ใหม่] ใช้ข้อมูลสดจาก useDbList("repairs") แทนพร็อพที่แช่แข็งไว้ตอนเปิด
+  // modal ครั้งแรก — พอมอบหมายช่างสำเร็จ หรือช่างส่งรายงานจากมือถือเข้ามา หน้านี้
+  // จะอัปเดตให้เห็นทันทีโดยไม่ต้องปิดแล้วเปิดใหม่
+  const job = repairs.find((r) => r.id === jobProp.id) || jobProp;
+
+  const currentTech = technicians.find((t) => t.username === job.technician_username);
+  const currentCust = customers.find((c) => c.username === job.customer_username);
+
+  const effStatus = displayStatus(job);
+  const severity = extractSeverity(job.detail);
+  const ratingInfo = extractRating(job);
+  const problemPhotos = getProblemPhotos(job);
+  const report = getRepairReport(job);
+  const hasReport = !!(report.text || report.beforePhoto || report.afterPhoto || report.slipPhoto);
+  const issue = getIssueReport(job);
+  const hasIssue = effStatus === "มีปัญหา" || !!(issue.detail || issue.photos.length);
+
+  // เตรียมพิกัดของช่างและลูกค้า
+  const techLoc = currentTech?.current_lat && currentTech?.current_lng
+    ? { lat: Number(currentTech.current_lat), lng: Number(currentTech.current_lng) }
+    : null;
+
+  // 🐛 [แก้ไข] BUG: ตำแหน่งปักหมุดฝั่งเว็บไม่ตรงกับแอปมือถือ — เช็คกับซอร์ส
+  // Flutter จริงแล้ว (admin_tracking.dart) พบว่าพิกัดที่ลูกค้าปักหมุดไว้จริง
+  // ถูกเก็บในฟิลด์ "dest_lat"/"dest_lng" ไม่ใช่ "latitude"/"longitude" ที่
+  // โค้ดเดิมอ่าน (ฟิลด์นี้ไม่มีอยู่จริงในข้อมูล) ทำให้ custLoc ว่างเปล่าเสมอ
+  // แล้วตกไปเดาพิกัดจากข้อความที่อยู่ผ่าน Geoapify แทน (ซึ่งไม่แม่นสำหรับ
+  // ตำบล/แขวงเล็กๆ หลายแห่ง ตามที่เคยพบมาก่อน) — แก้ให้อ่าน dest_lat/dest_lng
+  // ตรงกับที่แอปมือถือใช้จริง หมุดจะตรงกันแล้ว
+  const custLoc = job.dest_lat && job.dest_lng
+    ? { lat: Number(job.dest_lat), lng: Number(job.dest_lng) }
+    : null;
+
+  const customerAddress = formatBangkokAddress(job.location || currentCust?.address || "-");
+
+  return (
+    // 🆕 [ใหม่] กดพื้นหลังมืดๆ รอบนอกตรงไหนก็ปิดหน้านี้ได้เลยตามที่ขอ (เดิม
+    // ต้องกดปุ่ม X เท่านั้น) — onClick ที่ตัวนอกสุดนี้รับผิดชอบเรื่องปิด ส่วน
+    // การ์ดเนื้อหาด้านในกัน event ไม่ให้ลอยขึ้นมาปิดหน้าตอนกดเนื้อหาข้างในเอง
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs overflow-y-auto"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-3xl shadow-2xl w-full max-w-5xl my-8 overflow-hidden border border-slate-100 animate-in fade-in duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-50 text-[#B22121] flex items-center justify-center font-bold text-sm">
+              <Wrench size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-slate-800">
+                  {job.ticketNo || `#${job.id}`}
+                </h2>
+                <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${STATUS_BADGE[effStatus] || "bg-slate-100 text-slate-600"}`}>
+                  {effStatus}
+                </span>
+                <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${SEVERITY_BADGE[severity] || "bg-slate-100 text-slate-600"}`}>
+                  {severity}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                วันที่สร้าง: {displayStoredDate(job.date)} {job.time || ""}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            <X size={18} />
           </button>
         </div>
 
-        {/* 🔴 [แก้ไข] แบ่ง 2 คอลัมน์บนจอใหญ่ (3 คอลัมน์ถ้างานเสร็จแล้ว — ดู
-            คอมเมนต์ที่ isDone ? "lg:grid-cols-3" ด้านล่าง) — ซ้าย: รายละเอียด
-            งาน+มอบหมายช่าง (เหมือนเดิมทุกประการ) กลาง: รูปภาพจากลูกค้า+แผนที่
-            ขวา (เฉพาะงานเสร็จแล้ว): คะแนนรีวิว+รายงานการซ่อม จอเล็กกว่า lg จะ
-            เรียงตกลงมาเป็นคอลัมน์เดียวตามลำดับเสมอ */}
-        <div className={`p-6 lg:grid ${isDone ? "lg:grid-cols-3" : "lg:grid-cols-2"} lg:gap-8`}>
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_BADGE[job.status] ?? "bg-gray-100 text-gray-500"}`}>
-                {displayStatus(job.status)}
-              </span>
-              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${SEVERITY_BADGE[extractSeverity(job.detail)] ?? "bg-gray-100 text-gray-500"}`}>
-                {extractSeverity(job.detail)}
-              </span>
+        {/* Modal Body */}
+        <div className="p-6 space-y-6 max-h-[calc(85vh-120px)] overflow-y-auto">
+          {/* ข้อมูลอุปกรณ์และอาการเสีย */}
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">ข้อมูลอุปกรณ์และปัญหา</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-slate-400 text-xs block">อุปกรณ์/เครื่องจักร:</span>
+                <span className="font-medium text-slate-800">{job.machine || "-"}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 text-xs block">Serial Number:</span>
+                <span className="font-medium text-slate-800">{job.serial_number || "-"}</span>
+              </div>
+              <div className="sm:col-span-2">
+                <span className="text-slate-400 text-xs block">รายละเอียดปัญหา:</span>
+                <span className="text-slate-700 whitespace-pre-wrap">{job.detail || "-"}</span>
+              </div>
             </div>
-
-            <Row icon={User} label="ลูกค้า" value={job.customer_username} />
-            <Row icon={Wrench} label="อุปกรณ์ / เครื่องจักร" value={job.machine} />
-            <Row icon={UserCog} label="ช่างที่รับผิดชอบ" value={job.technician_username || "ยังไม่มอบหมาย"} />
-            <Row icon={Calendar} label="วันนัดหมาย" value={displayStoredDate(job.date)} />
-            {job.appointment_time ? <Row icon={Calendar} label="เวลานัดหมาย" value={`${job.appointment_time} น.`} /> : null}
-            <Row icon={MapPin} label="สถานที่" value={job.location} />
-            {job.detail ? <Row icon={AlertTriangle} label="รายละเอียดปัญหา" value={job.detail} /> : null}
-
-            {/* 🔴 กล่องมอบหมายช่าง — โชว์เฉพาะงานที่ยังไม่มีช่างและยังไม่จบ */}
-            {canAssign ? (
-              <div className="mt-5 pt-5 border-t border-slate-100">
-                <p className="text-sm font-semibold text-slate-700 mb-3">มอบหมายช่างให้งานนี้</p>
-
-                {/* ขั้นที่ 1: เลือกช่างก่อน */}
-                <select
-                  value={selectedTech}
-                  onChange={(e) => setSelectedTech(e.target.value)}
-                  disabled={assigning}
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                >
-                  <option value="">เลือกช่าง...</option>
-                  {technicians.map((t) => (
-                    <option key={t.id} value={t.username}>
-                      {t.tech_name || t.name || t.username}
-                    </option>
+            {/* 🆕 [ใหม่] รูปภาพปัญหาที่ลูกค้าแนบมาตอนแจ้งซ่อม (สูงสุด 6 รูป) —
+                โชว่ตามจำนวนจริงที่แนบมาเท่านั้น ไม่เผื่อช่องว่าง */}
+            {problemPhotos.length > 0 ? (
+              <div>
+                <span className="text-slate-400 text-xs block mb-1.5">
+                  ภาพปัญหาที่ลูกค้าแนบมา ({problemPhotos.length} รูป):
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {problemPhotos.map((url, i) => (
+                    <a
+                      key={i}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block w-20 h-20 rounded-lg overflow-hidden border border-slate-200 hover:opacity-80 transition-opacity"
+                    >
+                      <img src={url} alt={`ภาพปัญหา ${i + 1}`} className="w-full h-full object-cover" />
+                    </a>
                   ))}
-                </select>
-                {technicians.length === 0 ? (
-                  <p className="text-xs text-slate-400 mt-2">ยังไม่มีช่างในระบบ — เพิ่มช่างได้ที่เมนู "ช่างเทคนิค"</p>
-                ) : null}
-
-                {/* 🔴 [ใหม่] ขั้นที่ 2: เลือกวันนัด+เวลา — โชว่ต่อเมื่อเลือกช่าง
-                    แล้วเท่านั้น (ตามลำดับขั้นตอนที่ขอ: เลือกช่างก่อน ค่อยเลือก
-                    วันนัดทีหลัง) วันที่เลือกได้ต่ำสุดคือวันนี้ ห้ามเลือก
-                    ย้อนหลัง (min={todayInputValue}) — ใช้ DateField (ปฏิทินที่
-                    วาดเอง ใน components/ui.jsx) แทน <input type="date"> ของ
-                    เบราว์เซอร์ เพื่อคุมหน้าตาการแสดงผลวันที่ให้เป็น พ.ศ. เสมอ
-                    ค่าที่เก็บ/ส่งออกยังเป็น ISO string "YYYY-MM-DD" เหมือนเดิม
-                    ทุกประการ ไม่กระทบโค้ดส่วนอื่น (formatThaiDate ด้านบนแปลง
-                    ต่อเหมือนเดิม) */}
-                {selectedTech ? (
-                  <div className="mt-3">
-                    <p className="text-xs font-medium text-slate-500 mb-1.5">นัดหมายวันที่และเวลา</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <DateField
-                          value={appointmentDate}
-                          min={todayInputValue}
-                          onChange={setAppointmentDate}
-                          disabled={assigning}
-                        />
-                      </div>
-                      {/* 🔴 [แก้ไข] เวลาแบบไทย — ชั่วโมง 01-24 น. (24.00 = เที่ยงคืน
-                          แทน 00.00 แบบสากล) นาที 00-59 แยกเป็น 2 dropdown คั่นด้วย
-                          จุดแบบที่คนไทยเขียนเวลากัน (เช่น "14.30 น.") */}
-                      <select
-                        value={appointmentHour}
-                        onChange={(e) => setAppointmentHour(e.target.value)}
-                        disabled={assigning}
-                        className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      >
-                        <option value="">ชม.</option>
-                        {Array.from({ length: 24 }, (_, i) => String(i + 1).padStart(2, "0")).map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                      <span className="text-slate-400 shrink-0">.</span>
-                      <select
-                        value={appointmentMinute}
-                        onChange={(e) => setAppointmentMinute(e.target.value)}
-                        disabled={assigning}
-                        className="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      >
-                        <option value="">นาที</option>
-                        {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")).map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                      <span className="text-xs text-slate-400 shrink-0">น.</span>
-                    </div>
-                  </div>
-                ) : null}
-
-                <button
-                  onClick={handleAssign}
-                  disabled={assigning || !selectedTech}
-                  // 🎨 ปุ่ม "มอบหมาย" สีน้ำเงินมาตรฐาน (ตรงกับ PrimaryButton ใน
-                  // components/ui.jsx) — เขียนแยกในไฟล์นี้เพราะต้องใส่ loading state
-                  className="w-full mt-3 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 disabled:opacity-50"
-                >
-                  {assigning ? <Loader2 size={16} className="animate-spin" /> : null}
-                  มอบหมาย
-                </button>
-                {assignError ? <p className="text-xs text-red-500 mt-2">{assignError}</p> : null}
+                </div>
               </div>
             ) : null}
           </div>
 
-          {/* 🔴 [แก้ไข] คอลัมน์กลาง — รูปภาพจากลูกค้า + แผนที่ตำแหน่ง เท่านั้น
-              (คะแนนรีวิว/รายงานการซ่อมแยกออกไปเป็นคอลัมน์ที่ 3 ต่างหากแล้ว
-              ไม่ได้ต่อท้ายอยู่ในคอลัมน์เดียวกันแบบก่อนหน้านี้) */}
-          <div className="mt-6 lg:mt-0">
-            <p className="text-sm font-semibold text-slate-700 mb-3">รูปภาพจากลูกค้า</p>
-            <PhotoGallery images={parseImages(job.images)} />
-
-            <JobLocationMap job={job} technician={assignedTechnician} />
-          </div>
-
-          {/* 🔴 [ใหม่] คอลัมน์ที่ 3 — คะแนนรีวิว + รายงานการซ่อม เป็นโซนแยก
-              ต่างหากถัดจากคอลัมน์รูปภาพ/แผนที่ (ไม่ใช่ต่อท้ายด้านล่าง) โชว์
-              เฉพาะตอนงาน "เสร็จสิ้น" เท่านั้น (isDone) ซึ่งเป็นเงื่อนไขเดียวกับ
-              ที่ทำให้ grid ด้านบนเปลี่ยนเป็น lg:grid-cols-3 พอดี จึงไม่ต้องมี
-              col-span พิเศษ/breakpoint แยกอีกชั้นแบบที่เคยลองไว้ (mt-6 lg:mt-0
-              ให้ตรงกับ pattern เดียวกับคอลัมน์กลาง) */}
-          {isDone ? (
-            <div className="mt-6 lg:mt-0">
-              {/* 🔴 [ใหม่] คะแนนรีวิวจากลูกค้า — ฟีเจอร์ให้คะแนนยังไม่มีอยู่จริง
-                  ฝั่ง Flutter (ลูกค้ายังกดให้คะแนนไม่ได้) จึงเดาชื่อ field ไว้
-                  ก่อน (ดู extractRating ใน shared/constants.js) — ตอนนี้จะขึ้น
-                  "ยังไม่มีคะแนน" เสมอ จนกว่าจะมีฟีเจอร์ให้คะแนนจริงและ field
-                  ตรงกัน */}
-              <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5">
-                <p className="text-sm font-semibold text-slate-800 mb-2">คะแนนรีวิวจากลูกค้า</p>
-                <StarRating value={ratingInfo.value} size={16} />
-                {ratingInfo.comment ? (
-                  <p className="text-sm text-slate-600 mt-3">"{ratingInfo.comment}"</p>
-                ) : null}
+          {/* 🔴 [แก้ไข] เดิมฝั่งขวาโชว่กล่องขอบประ "ยังไม่มีรายงานการซ่อมหรือ
+              ปัญหาจากช่าง" ค้างไว้ตลอดเวลาที่ยังไม่มีรายงาน — ตามที่ขอ ถ้ายังไม่
+              มีรายงาน/ปัญหาจริงๆ ไม่ต้องมีคอลัมน์ขวาเลย ยุบกลับมาเป็นคอลัมน์
+              เดียวเต็มความกว้างแทน พอมีรายงาน/ปัญหาเข้ามาจริงค่อยแบ่ง 2 คอลัมน์ */}
+          {hasReport || hasIssue ? (
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+              <div className="lg:col-span-3 space-y-4">
+                <JobLeftColumn
+                  job={job}
+                  currentCust={currentCust}
+                  currentTech={currentTech}
+                  technicians={technicians}
+                  customerAddress={customerAddress}
+                  techLoc={techLoc}
+                  custLoc={custLoc}
+                />
               </div>
 
-              {/* 🔴 [ใหม่] รายงานการซ่อมจากช่าง — โชว์เฉพาะงานที่สถานะ "เสร็จสิ้น"/
-                  "เสร็จแล้ว" เท่านั้น
-                  🐛 [แก้ไข] ใช้ชื่อ field ที่ถูกต้องแล้ว (เช็กกับ services.dart
-                  submitRepairReport() ตรง ๆ) เดิมเดาชื่อผิดเลยไม่เคยขึ้นข้อมูล */}
-              <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/40 p-5">
-                <div className="flex items-center justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <FileText size={16} className="text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">
-                        รายงานการซ่อมจากช่าง {reportInfo.formCode ? `(${reportInfo.formCode})` : ""}
-                      </p>
-                      {reportInfo.reportedAt ? (
-                        <p className="text-xs text-slate-400">ส่งรายงานเมื่อ {reportInfo.reportedAt}</p>
-                      ) : null}
-                    </div>
+              {/* ฝั่งขวา: รายงานการซ่อม + ปัญหาที่พบ */}
+              <div className="lg:col-span-2 space-y-4">
+                {hasReport ? (
+                  <div className="border border-slate-100 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-slate-800 font-semibold text-sm">
+                    <FileText size={16} className="text-emerald-600" />
+                    <span>รายงานการซ่อม</span>
+                  </div>
+                  <div className="text-xs text-slate-600 space-y-2">
+                    {report.formCode ? (
+                      <p><span className="text-slate-400">รหัสงานซ่อม:</span> {report.formCode}</p>
+                    ) : null}
+                    {report.text ? (
+                      <div>
+                        <span className="text-slate-400 block mb-1">รายละเอียดปัญหาที่พบ:</span>
+                        <span className="text-slate-700 whitespace-pre-wrap">{report.text}</span>
+                      </div>
+                    ) : null}
+                    {(report.beforePhoto || report.afterPhoto) ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {report.beforePhoto ? (
+                          <div>
+                            <span className="text-slate-400 block mb-1">ภาพก่อนซ่อม</span>
+                            <a href={report.beforePhoto} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-slate-200">
+                              <img src={report.beforePhoto} alt="ภาพก่อนซ่อม" className="w-full h-full object-cover" />
+                            </a>
+                          </div>
+                        ) : null}
+                        {report.afterPhoto ? (
+                          <div>
+                            <span className="text-slate-400 block mb-1">ภาพหลังซ่อม</span>
+                            <a href={report.afterPhoto} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-slate-200">
+                              <img src={report.afterPhoto} alt="ภาพหลังซ่อม" className="w-full h-full object-cover" />
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {report.slipPhoto ? (
+                      <div>
+                        <span className="text-slate-400 block mb-1">สลิปโอนเงินของลูกค้า</span>
+                        <a href={report.slipPhoto} target="_blank" rel="noreferrer" className="block w-28 aspect-square rounded-lg overflow-hidden border border-slate-200">
+                          <img src={report.slipPhoto} alt="สลิปโอนเงิน" className="w-full h-full object-cover" />
+                        </a>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
+              ) : null}
 
-                <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed mb-4">
-                  {reportInfo.text || "ช่างไม่ได้ระบุข้อความรายละเอียด"}
-                </p>
-
-                {(reportInfo.beforePhoto || reportInfo.afterPhoto || reportInfo.slipPhoto) ? (
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 mb-2">รูปภาพประกอบการปิดงาน (ก่อนซ่อม / หลังซ่อม / สลิป)</p>
-                    <PhotoGallery
-                      images={[reportInfo.beforePhoto, reportInfo.afterPhoto, reportInfo.slipPhoto].filter(Boolean)}
-                    />
+              {hasIssue ? (
+                <div className="border border-amber-100 bg-amber-50/40 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-amber-800 font-semibold text-sm">
+                    <ShieldAlert size={16} className="text-amber-600" />
+                    <span>ปัญหาที่พบ</span>
                   </div>
-                ) : null}
-              </div>
+                  <div className="text-xs text-slate-700 space-y-2">
+                    <p className="whitespace-pre-wrap">{issue.detail || "ช่างแจ้งว่ามีปัญหา แต่ยังไม่มีรายละเอียดเพิ่มเติม"}</p>
+                    {issue.photos.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {issue.photos.map((url, i) => (
+                          <a key={i} href={url} target="_blank" rel="noreferrer" className="block w-20 h-20 rounded-lg overflow-hidden border border-amber-200">
+                            <img src={url} alt={`ภาพปัญหา ${i + 1}`} className="w-full h-full object-cover" />
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
+          ) : (
+            <JobLeftColumn
+              job={job}
+              currentCust={currentCust}
+              currentTech={currentTech}
+              technicians={technicians}
+              customerAddress={customerAddress}
+              techLoc={techLoc}
+              custLoc={custLoc}
+            />
+          )}
+
+          {/* รีวิวและคะแนนประเมิน (ถ้ามี) */}
+          {ratingInfo.value !== null && (
+            <div className="border border-slate-100 bg-amber-50/50 rounded-2xl p-4">
+              <h4 className="text-xs font-bold text-amber-800 mb-2">ผลการประเมินจากลูกค้า</h4>
+              <div className="flex items-center gap-2 mb-1">
+                <StarRating value={ratingInfo.value} size={16} />
+                <span className="text-sm font-bold text-slate-800">{ratingInfo.value} / 5</span>
+              </div>
+              {ratingInfo.comment && (
+                <p className="text-xs text-slate-600 italic">"{ratingInfo.comment}"</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+          {onNavigate && (
+            <button
+              onClick={() => {
+                onClose();
+                onNavigate("chat", { query: String(job.id) });
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
+            >
+              <MessageSquare size={16} />
+              เปิดห้องแชท
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="px-5 py-2 rounded-xl text-sm font-medium bg-[#B22121] text-white hover:bg-[#8B1A1A] transition-colors"
+          >
+            ปิด
+          </button>
         </div>
       </div>
     </div>

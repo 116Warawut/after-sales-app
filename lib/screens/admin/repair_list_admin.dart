@@ -500,6 +500,10 @@ enum RepairStatus {
   // ด้านล่างไม่มีเคสรองรับทั้งคู่ (รวมถึง 'กำลังซ่อม' ของ inProgress) เลยตกไปที่
   // default กลายเป็น waiting ทำให้ป้ายสถานะ/แท็บของแอดมินบนมือถือผิดไปจากเว็บ
   scheduledPending,
+  // 🆕 [ใหม่] สถานะ "กำลังเดินทาง" (ถึงคิวงานแล้ว ช่างกำลังมุ่งหน้าไปหาลูกค้า
+  // ยังไม่ได้ลงมือซ่อมจริง) — ตั้งโดย markTechnicianTraveling() ใน
+  // services.dart ตอนช่างผ่านเงื่อนไขวันนัด+คิวงานในหน้าติดตามตำแหน่งลูกค้า
+  traveling,
   inProgress,
   overdue,
   done,
@@ -515,6 +519,7 @@ extension RepairStatusX on RepairStatus {
   String get label => switch (this) {
         RepairStatus.waiting => 'รอจัดสรรช่าง',
         RepairStatus.scheduledPending => 'รอดำเนินการ',
+        RepairStatus.traveling => 'กำลังเดินทาง',
         RepairStatus.inProgress => 'กำลังดำเนินการ',
         RepairStatus.overdue => 'เกินกำหนดเวลา',
         RepairStatus.done => 'เสร็จสิ้นแล้ว',
@@ -531,6 +536,10 @@ extension RepairStatusX on RepairStatus {
         // 'รอดำเนินการ' และ 'เกินกำหนดเวลา' อยู่แล้ว — เอามาใช้ซ้ำเพื่อให้
         // สีตรงกันทั้งแอป
         RepairStatus.scheduledPending => const Color(0xFFFFF7ED),
+        // 🆕 [ใหม่] สีฟ้าเดียวกับที่ StatusStyle.getStyle() ใน widgets.dart
+        // ใช้กับ 'กำลังเดินทาง' — แยกจาก "กำลังซ่อม" (น้ำเงินเข้ม) ให้เห็นชัดว่า
+        // เป็นคนละขั้นตอนกัน
+        RepairStatus.traveling => const Color(0xFFDCEEFF),
         RepairStatus.inProgress => AppColors.blueBg,
         RepairStatus.overdue => const Color(0xFFFFECEC),
         RepairStatus.done => AppColors.greenBg,
@@ -542,6 +551,7 @@ extension RepairStatusX on RepairStatus {
   Color get fg => switch (this) {
         RepairStatus.waiting => AppColors.yellowText,
         RepairStatus.scheduledPending => const Color(0xFFEA580C),
+        RepairStatus.traveling => const Color(0xFF1D4ED8),
         RepairStatus.inProgress => AppColors.blueText,
         RepairStatus.overdue => const Color(0xFFB91C1C),
         RepairStatus.done => AppColors.greenText,
@@ -555,6 +565,10 @@ extension RepairStatusX on RepairStatus {
   static RepairStatus fromString(String? status) {
     if (status == null) return RepairStatus.waiting;
     switch (status.trim().toLowerCase()) {
+      // 🆕 [ใหม่] ค่าใหม่ที่ markTechnicianTraveling() ใน services.dart ตั้งให้
+      // ตอนช่างถึงคิวงานและเปิดดูแผนที่แล้ว (ก่อนหน้า "กำลังซ่อม" จริง)
+      case 'กำลังเดินทาง':
+        return RepairStatus.traveling;
       case 'กำลังดำเนินการ':
       // 🐛 [แก้บัค] getEffectiveRepairStatus() คืนค่า 'กำลังซ่อม' (ไม่ใช่
       // 'กำลังดำเนินการ') เมื่อถึงวันนัดแล้ว — เดิมไม่มีเคสนี้เลยจึงตกไปเป็น

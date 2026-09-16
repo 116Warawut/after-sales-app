@@ -42,7 +42,14 @@ enum FilterTab {
       case FilterTab.scheduledPending:
         return s == 'รอดำเนินการ';
       case FilterTab.inProgress:
-        return s == 'กำลังซ่อม' || s == 'กำลังดำเนินการ' || s == 'In Progress';
+        // 🆕 [ใหม่] รวม 'กำลังเดินทาง' (สถานะใหม่ก่อนหน้า 'กำลังซ่อม' จริง —
+        // ตั้งตอนช่างถึงคิวงานและเปิดดูแผนที่แล้ว ดู markTechnicianTraveling()
+        // ใน services.dart) เข้าแท็บ "กำลังซ่อม" เดิมไปด้วย กันตกหล่นไปโผล่แท็บ
+        // อื่นผิด ๆ เหมือนเคสสถานะใหม่อื่น ๆ ที่เจอมาก่อนหน้านี้ในโปรเจกต์นี้
+        return s == 'กำลังซ่อม' ||
+            s == 'กำลังดำเนินการ' ||
+            s == 'กำลังเดินทาง' ||
+            s == 'In Progress';
       case FilterTab.urgent:
         return (detail ?? '').contains('เร่งด่วน') ||
             (detail ?? '').contains('[ความรุนแรง: เร่งด่วน]');
@@ -85,6 +92,15 @@ class StatusStyle {
           bg: AppColors.yellowBg,
           fg: AppColors.yellowText,
           icon: Icons.sync,
+        );
+      // 🆕 [ใหม่] สถานะ "กำลังเดินทาง" (ช่างถึงคิวงานแล้ว กำลังมุ่งหน้าไปหา
+      // ลูกค้า ยังไม่ได้ลงมือซ่อมจริง) — ให้สีฟ้าแยกจาก "กำลังซ่อม" (เหลือง)
+      // เพื่อให้ลูกค้า/แอดมินแยกออกว่าช่างอยู่ขั้นไหนจริง ๆ
+      case 'กำลังเดินทาง':
+        return const StatusStyle(
+          bg: Color(0xFFDCEEFF),
+          fg: Color(0xFF1D4ED8),
+          icon: Icons.directions_car_filled_outlined,
         );
       case 'รอดำเนินการ':
         return const StatusStyle(

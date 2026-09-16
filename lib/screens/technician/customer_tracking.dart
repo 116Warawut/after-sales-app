@@ -6,6 +6,7 @@
 // ได้แก่ การ์ดล่างแบบมุมโค้ง, ปุ่มติดต่อ/ส่งข้อความ (_buildActionMenu)
 // และปุ่ม "แสดงบัตร" (นำไปสู่ IdentityCardPage) แต่ยังคงใช้ข้อมูลจริง
 // (SQLite + Geoapify) ของ CustomerTrackingPage เดิมทั้งหมด ไม่ได้ mock ข้อมูล
+import 'dart:async' show unawaited;
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/geoapify_service.dart';
 import 'package:after_sales/location_service.dart';
@@ -160,7 +161,6 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
     // เงื่อนไขที่ 2: ต้องถึงคิวงานนี้แล้วเท่านั้น (ใช้ระบบคิวจริงตาม approved_at
     // แทนการเช็คแค่ status — ถ้าช่างมีงานนัดวันเดียวกันหลายงาน จะเห็นตำแหน่งลูกค้า
     // ได้เฉพาะงานที่ถูกอนุมัติ/มอบหมายก่อนที่สุด (คิวที่ 1) ก่อนเท่านั้น)
-    final status = repair['status'] as String?;
     // 🐛 [แก้บัค] เดิมอ่าน map['id'] ตรง ๆ อาจไม่ตรงกับคีย์จริงใน Firebase ของ
     // record นี้ ทำให้เช็คคิวงาน (getQueueInfo) ผิดใบ — ใช้ resolveRecordId()
     // ที่ยึดคีย์จริงเป็นหลักแทน
@@ -168,9 +168,16 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
     if (repairId != null) {
       final queueInfo = await db.DatabaseHelper.instance.getQueueInfo(repairId);
       final isMyTurn = queueInfo.position == 1;
-      final isPhysicallyStarted =
-          status == 'กำลังซ่อม' || status == 'กำลังเดินทาง';
-      if (!isMyTurn && !isPhysicallyStarted) {
+      // 🐛 [แก้บัค] เดิมมีเงื่อนไขข้อยกเว้น "isPhysicallyStarted" (status ==
+      // 'กำลังซ่อม'/'กำลังเดินทาง') ที่ปล่อยผ่านได้แม้ยังไม่ถึงคิว — แต่เพราะ
+      // getEffectiveRepairStatus() ใน services.dart (ตอนนั้น) บังคับคืนค่า
+      // 'กำลังซ่อม' ให้ทุกงานของช่างที่ตรงกับวันนัดวันนี้เสมอ (ไม่ว่าจะถึงคิวจริง
+      // หรือยัง) เงื่อนไขนี้เลยเป็นจริงตลอดเวลาโดยไม่ได้ตั้งใจ ทำให้ช่างดู
+      // ตำแหน่งลูกค้าของ "ทุกงาน" ในวันเดียวกันได้พร้อมกันหมด ทั้งที่ควรดูได้
+      // ทีละงานตามคิวเท่านั้น — ตัดเงื่อนไขนี้ทิ้ง ให้ยึด isMyTurn (คิวที่ 1
+      // เท่านั้น) เป็นเกณฑ์เดียวแทน (ฝั่ง services.dart ก็แก้ไม่ให้บังคับสถานะ
+      // แบบนั้นแล้วเช่นกัน)
+      if (!isMyTurn) {
         if (!mounted) return;
         setState(() {
           _errorMessage =
@@ -179,6 +186,9 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
         });
         return;
       }
+      // 🆕 [ใหม่] ผ่านทั้งเงื่อนไขวันนัดและคิวงานแล้ว = ช่างกำลังจะออกเดินทางไป
+      // หาลูกค้าจริง ๆ — ตั้งสถานะ "กำลังเดินทาง" ให้ลูกค้าเห็นด้วย
+      await db.DatabaseHelper.instance.markTechnicianTraveling(repairId);
     }
 
     // 2. ดึงข้อมูลลูกค้าเจ้าของงาน
@@ -276,6 +286,25 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
           routePoints = pts.map((p) => LatLng(p['lat']!, p['lng']!)).toList();
         }
       }
+    }
+
+    // 🆕 [ใหม่] เช็คระยะห่างแบบเส้นตรงจริง (ไม่ใช่ระยะทางถนนจาก Routing API
+    // ด้านบน) ถ้าช่างเข้าใกล้หมุดลูกค้าในรัศมี 1 กม. ให้แจ้งเตือนลูกค้าว่า
+    // "ช่างใกล้ถึงแล้ว" (ส่งแค่ครั้งเดียวต่องาน — ดู notifyIfTechnicianNearby)
+    if (startLat != null && startLng != null && repairId != null) {
+      final ticketLabel =
+          (repair['ticketNo'] as String?)?.trim().isNotEmpty == true
+              ? repair['ticketNo'] as String
+              : '#$repairId';
+      unawaited(db.DatabaseHelper.instance.notifyIfTechnicianNearby(
+        repairId: repairId,
+        techLat: startLat,
+        techLng: startLng,
+        destLat: destLat,
+        destLng: destLng,
+        customerUsername: customerUsername,
+        ticketLabel: ticketLabel,
+      ));
     }
 
     if (!mounted) return;

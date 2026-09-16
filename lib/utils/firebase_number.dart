@@ -39,16 +39,10 @@ double? toDoubleOrNull(dynamic v) {
 double toDoubleOr(dynamic v, double fallback) => toDoubleOrNull(v) ?? fallback;
 
 /// 🐛 [แก้บัค] แปลง Map ที่ได้จาก Firebase ให้เป็น "id" สำหรับใช้เปิดหน้ารายละเอียด/
-/// นำทางต่อ โดยยึด "คีย์จริงใน Firebase" (map['_fbKey'] เช่น "k37") เป็นหลักก่อน
-/// เสมอ แล้วค่อย fallback ไปใช้ field 'id' ที่เก็บอยู่ข้างในตัว record เอง
-///
-/// เหตุผล: ปกติ field 'id' ข้างในควรตรงกับคีย์จริงเป๊ะ ๆ อยู่แล้ว แต่บาง record
-/// (เช่น ถูกแก้ไขข้อมูลย้อนหลัง/นำเข้าจากที่อื่น) field 'id' อาจไม่ตรงกับคีย์จริง
-/// ของตัวเอง — ถ้าเผลอเอา field 'id' (ผิด) ไปต่อคีย์ใหม่ตอนเปิดหน้ารายละเอียด
-/// จะพาไปเปิด record คนละใบที่บังเอิญมีคีย์นั้นอยู่จริง (เช่น record เปล่า ๆ)
-/// แทนที่จะเปิด record จริงของงานนั้น — ให้ทุกจุดที่สร้าง item จาก Firebase map
-/// (RepairListItem, Ticket ฯลฯ) ใช้ฟังก์ชันนี้แทนการอ่าน map['id'] ตรง ๆ
-int? resolveRecordId(Map<String, dynamic> map) {
+/// นำทางต่อ โดยยึด "คีย์จริงใน Firebase" (map['_fbKey'] เช่น "k37" หรือ "-Ox...") เป็นหลักก่อน
+/// เสมอ แล้วค่อย fallback ไปใช้ field 'id' หรือ 'ticketNo'
+/// คืนค่าเป็น dynamic (int หรือ String) เพื่อไม่ให้หลุดเป็น null
+dynamic resolveRecordId(Map<String, dynamic> map) {
   final fbKey = map['_fbKey']?.toString().trim();
   if (fbKey != null && fbKey.isNotEmpty) {
     final digitsOnly =
@@ -57,8 +51,22 @@ int? resolveRecordId(Map<String, dynamic> map) {
             : fbKey;
     final fromKey = int.tryParse(digitsOnly);
     if (fromKey != null) return fromKey;
+    return fbKey;
   }
-  return toIntOrNull(map['id']);
+
+  final idVal = map['id'];
+  final asInt = toIntOrNull(idVal);
+  if (asInt != null) return asInt;
+  if (idVal != null && idVal.toString().trim().isNotEmpty) {
+    return idVal.toString().trim();
+  }
+
+  final ticketNo = map['ticketNo']?.toString().trim();
+  if (ticketNo != null && ticketNo.isNotEmpty) {
+    return ticketNo;
+  }
+
+  return null;
 }
 
 /// แปลงค่า dynamic จาก Firebase ให้เป็น String แบบปลอดภัย

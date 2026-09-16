@@ -45,6 +45,13 @@ enum TicketStatus {
   // เพิ่ม 2 เคสนี้ให้ตรงกับฝั่งแอดมิน
   overdue,
   issue,
+  // 🆕 [ใหม่] สถานะ "กำลังเดินทาง" (ถึงคิวงานแล้ว ช่างกำลังมุ่งหน้าไปหาลูกค้า
+  // ยังไม่ได้ลงมือซ่อมจริง) — ตั้งโดย markTechnicianTraveling() ใน
+  // services.dart ตอนช่างผ่านเงื่อนไขวันนัด+คิวงานในหน้าติดตามตำแหน่งลูกค้า
+  // เพิ่มเคสให้ตรงกับฝั่งแอดมิน (RepairStatus.traveling ใน
+  // repair_list_admin.dart / assign_repair_formdetail.dart) กันตกไปที่
+  // default กลายเป็น waitingParts เหมือนสถานะใหม่อื่น ๆ ที่เจอมาก่อนหน้านี้
+  traveling,
 }
 
 extension TicketStatusX on TicketStatus {
@@ -67,6 +74,8 @@ extension TicketStatusX on TicketStatus {
         return 'เกินกำหนดเวลา';
       case TicketStatus.issue:
         return 'มีปัญหา / ต้องตรวจสอบ';
+      case TicketStatus.traveling:
+        return 'กำลังเดินทาง';
     }
   }
 
@@ -91,6 +100,10 @@ extension TicketStatusX on TicketStatus {
         return const Color(0xFFB91C1C);
       case TicketStatus.issue:
         return AppColors.redText;
+      // 🆕 [ใหม่] สีฟ้าเดียวกับที่ StatusStyle.getStyle() ใน widgets.dart /
+      // RepairStatus.traveling ฝั่งแอดมินใช้ — แยกจาก "กำลังซ่อม" (เหลือง)
+      case TicketStatus.traveling:
+        return const Color(0xFF1D4ED8);
     }
   }
 
@@ -121,6 +134,9 @@ extension TicketStatusX on TicketStatus {
         return TicketStatus.overdue;
       case 'มีปัญหา':
         return TicketStatus.issue;
+      // 🆕 [ใหม่] เพิ่มเคสให้ตรงกับฝั่งแอดมิน (ดู RepairStatus.traveling)
+      case 'กำลังเดินทาง':
+        return TicketStatus.traveling;
       default:
         return TicketStatus.waitingParts;
     }
