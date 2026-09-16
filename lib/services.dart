@@ -243,148 +243,110 @@ class DatabaseHelper {
     return v;
   }
 
-  /// เช็กว่า record ที่อ่านมา "มีเนื้อข้อมูลจริง" หรือเป็นแค่โครงเปล่า
-  /// (มีแต่ id / _fbKey / status ที่เราเติมเองทีหลัง)
-  static bool _rowHasContent(Map<String, dynamic> row) {
-    const meta = {'id', '_fbKey', 'status'};
-    return row.keys.any((k) => !meta.contains(k));
-  }
-
-  /// ค้นหาข้อมูลตาม ID โดยค้นหาได้ทั้ง Key ตรง, รูปแบบสลับ k, ตัวเลขล้วน และสแกนค้นหาด้วย ticketNo
+  /// ค้นหาข้อมูลตาม ID
+  ///
+  /// 🍎 [แก้บัค iOS — สำคัญ] เดิมอ่านแบบเจาะ path ลึกตรง ๆ คือ
+  ///     _root.child('repairs/k40').get()
+  /// ซึ่งบน Android ได้ record ใบเดียวถูกต้อง แต่บน iOS ปลั๊กอิน
+  /// firebase_database มีบั๊ก: ถ้ามี listener (onValue) ค้างอยู่ที่ node แม่
+  /// เช่น 'repairs' (ซึ่งหน้าแรก/หน้ารายการซ่อมของเราเปิดค้างไว้ผ่าน
+  /// _streamAll) แล้วเรียก get() ที่ลูก มันจะคืน "snapshot ของ node แม่"
+  /// กลับมาแทน โดย exists ก็เป็น true ด้วย
+  ///
+  /// หลักฐานจาก DebugLog บนเครื่องจริง:
+  ///     _byId(repairs,40): ลอง key="k40" -> exists=true
+  ///     _byId(repairs,40): อ่านตรงได้ 3 ฟิลด์ -> k39,k40,k41
+  /// คือขอ repairs/k40 แต่ได้ทั้งตาราง repairs (k39,k40,k41) กลับมา
+  /// พอไปอ่าน row['ticketNo'] จึงได้ null ทุกช่อง -> หน้าจอขึ้น "-" หมด
+  ///
+  /// วิธีแก้: เลิกอ่าน path ลึก เปลี่ยนมาอ่าน "ทั้งตาราง" ครั้งเดียวแล้วเลือก
+  /// record เองในฝั่ง Dart — เป็นเส้นทางเดียวกับ _all() ที่หน้ารายการซ่อม
+  /// ใช้อยู่และทำงานถูกต้องบน iOS อยู่แล้ว (ตารางมีไม่กี่ร้อยแถว อ่านทั้งก้อน
+  /// ไม่ได้ช้ากว่ากันอย่างมีนัยสำคัญ)
   Future<Map<String, dynamic>?> _byId(String table, dynamic id) async {
     if (id == null) return null;
     final rawId = id.toString().trim();
     if (rawId.isEmpty || rawId == 'null') return null;
 
     final key = _k(id);
-    DataSnapshot snap;
+    final altKey = (rawId.startsWith('k') || rawId.startsWith('K'))
+        ? rawId.substring(1)
+        : 'k$rawId';
+    final numericRaw = rawId.replaceAll(RegExp(r'[^0-9]'), '');
 
+    final table_ = <String, dynamic>{};
     try {
-      // 1. ค้นหาด้วยคีย์ปกติ (เช่น k37, -Ox123)
-      snap = await _root.child('$table/$key').get();
-      DebugLog.add('_byId($table,$id): ลอง key="$key" -> exists=${snap.exists}');
-
-      // 2. ถ้าไม่พบ ให้ลองสลับรูปแบบคีย์ (ตัด 'k' ออก หรือเติม 'k' เข้าไป)
+      final snap = await _root.child(table).get();
       if (!snap.exists || snap.value == null) {
-        final altKey = (rawId.startsWith('k') || rawId.startsWith('K'))
-            ? rawId.substring(1)
-            : 'k$rawId';
+        DebugLog.add('_byId($table,$id): ตาราง "$table" ว่างเปล่า/อ่านไม่ได้');
+        return null;
+      }
 
-        snap = await _root.child('$table/$altKey').get();
-        DebugLog.add('_byId($table,$id): ลอง altKey="$altKey" -> exists=${snap.exists}');
-
-        // 3. ลองค้นหาด้วยรหัสเดิมตรงๆ
-        if (!snap.exists || snap.value == null) {
-          snap = await _root.child('$table/$rawId').get();
-          DebugLog.add('_byId($table,$id): ลอง rawId="$rawId" -> exists=${snap.exists}');
-        }
-
-        // 4. สกัดเอาเฉพาะตัวเลข (เช่น #AS-888355 -> 888355)
-        final numericOnly = rawId.replaceAll(RegExp(r'[^0-9]'), '');
-        if ((!snap.exists || snap.value == null) &&
-            numericOnly.isNotEmpty &&
-            numericOnly != rawId) {
-          snap = await _root.child('$table/$numericOnly').get();
-          if (!snap.exists || snap.value == null) {
-            snap = await _root.child('$table/k$numericOnly').get();
-          }
+      final raw = snap.value;
+      if (raw is Map) {
+        raw.forEach((k, v) {
+          if (v is Map) table_[k.toString()] = normalizeRow(v);
+        });
+      } else if (raw is List) {
+        for (var i = 0; i < raw.length; i++) {
+          final v = raw[i];
+          if (v != null && v is Map) table_['$i'] = normalizeRow(v);
         }
       }
     } catch (e) {
-      DebugLog.add('_byId($table,$id): EXCEPTION ตอนอ่าน key ตรงๆ: $e');
-      snap = await _dummyMissingSnapshot();
+      DebugLog.add('_byId($table,$id): EXCEPTION ตอนอ่านตาราง: $e');
+      return null;
     }
 
-    if (snap.exists && snap.value != null && snap.value is Map) {
-      // 🍎 [แก้บัค iOS] ใช้ normalizeRow แทน Map<String, dynamic>.from()
-      final row = normalizeRow(snap.value);
-      DebugLog.add(
-          '_byId($table,$id): อ่านตรงได้ ${row.length} ฟิลด์ -> ${row.keys.take(12).join(",")}');
-
-      // ถ้าอ่านตรงแล้วได้แต่โครงเปล่า (ไม่มีฟิลด์จริงสักช่อง) อย่าเพิ่งคืนค่า
-      // ให้ตกไปใช้ fallback สแกนทั้งตาราง ซึ่งเป็นเส้นทางเดียวกับหน้า "รายการซ่อม"
-      // ที่แสดงข้อมูลได้ปกติอยู่แล้ว
-      if (_rowHasContent(row)) {
-        row['_fbKey'] = snap.key ?? key;
-        row['id'] ??= snap.key ?? key;
-        if (table == 'repairs') {
-          row['status'] = getEffectiveRepairStatus(row);
-        }
-        return row;
+    // 1) ลองจับคู่จาก "คีย์" ตรง ๆ ก่อน ตามลำดับความน่าจะเป็น
+    String? hitKey;
+    for (final candidate in [key, altKey, rawId, numericRaw, 'k$numericRaw']) {
+      if (candidate.isEmpty) continue;
+      if (table_.containsKey(candidate)) {
+        hitKey = candidate;
+        break;
       }
-
-      DebugLog.add(
-          '_byId($table,$id): record ที่อ่านตรงว่างเปล่า -> ไปสแกนทั้งตารางต่อ');
     }
 
-    // 5. Fallback: สแกนทั้งตาราง (รองรับทั้ง Map และ List จาก Firebase)
-    try {
-      final allSnap = await _root.child(table).get();
-      if (allSnap.exists && allSnap.value != null) {
-        final raw = allSnap.value;
-        final List<Map<String, dynamic>> allRows = [];
+    // 2) ถ้ายังไม่เจอ ค่อยสแกนเทียบจากฟิลด์ id / ticketNo ภายใน record
+    if (hitKey == null) {
+      for (final entry in table_.entries) {
+        final row = entry.value as Map<String, dynamic>;
+        final fieldIdStr = row['id']?.toString() ?? '';
+        final ticketNoStr = row['ticketNo']?.toString() ?? '';
+        final numFieldId = fieldIdStr.replaceAll(RegExp(r'[^0-9]'), '');
+        final numTicketNo = ticketNoStr.replaceAll(RegExp(r'[^0-9]'), '');
+        final numKeyStr = entry.key.replaceAll(RegExp(r'[^0-9]'), '');
 
-        if (raw is Map) {
-          for (final entry in raw.entries) {
-            if (entry.value is Map) {
-              final row = normalizeRow(entry.value);
-              row['_fbKey'] = entry.key.toString();
-              allRows.add(row);
-            }
-          }
-        } else if (raw is List) {
-          for (var i = 0; i < raw.length; i++) {
-            if (raw[i] != null && raw[i] is Map) {
-              final row = normalizeRow(raw[i]);
-              row['_fbKey'] = i.toString();
-              allRows.add(row);
-            }
-          }
-        }
+        final matches = fieldIdStr == rawId ||
+            ticketNoStr == rawId ||
+            (numericRaw.isNotEmpty &&
+                (numFieldId == numericRaw ||
+                    numTicketNo == numericRaw ||
+                    numKeyStr == numericRaw));
 
-        final numericRaw = rawId.replaceAll(RegExp(r'[^0-9]'), '');
-
-        for (final candidate in allRows) {
-          final keyStr = candidate['_fbKey']?.toString() ?? '';
-          final fieldIdStr = candidate['id']?.toString() ?? '';
-          final ticketNoStr = candidate['ticketNo']?.toString() ?? '';
-
-          final numFieldId = fieldIdStr.replaceAll(RegExp(r'[^0-9]'), '');
-          final numTicketNo = ticketNoStr.replaceAll(RegExp(r'[^0-9]'), '');
-          final numKeyStr = keyStr.replaceAll(RegExp(r'[^0-9]'), '');
-
-          final matches = keyStr == rawId ||
-              keyStr == key ||
-              keyStr == 'k$rawId' ||
-              fieldIdStr == rawId ||
-              ticketNoStr == rawId ||
-              (numericRaw.isNotEmpty &&
-                  (numFieldId == numericRaw ||
-                      numTicketNo == numericRaw ||
-                      numKeyStr == numericRaw));
-
-          if (matches) {
-            candidate['_fbKey'] = keyStr;
-            candidate['id'] ??= keyStr;
-            if (table == 'repairs') {
-              candidate['status'] = getEffectiveRepairStatus(candidate);
-            }
-            DebugLog.add('_byId($table,$id): พบข้อมูลผ่าน fallback (key="$keyStr")');
-            return candidate;
-          }
+        if (matches) {
+          hitKey = entry.key;
+          break;
         }
       }
-      DebugLog.add('_byId($table,$id): fallback สแกนแล้วไม่พบข้อมูล');
-    } catch (e) {
-      DebugLog.add('_byId($table,$id): EXCEPTION ตอน fallback สแกน: $e');
     }
-    return null;
-  }
 
-  Future<DataSnapshot> _dummyMissingSnapshot() async {
-    final ref = FirebaseDatabase.instance
-        .ref('__debug_nonexistent_path_${DateTime.now().microsecondsSinceEpoch}');
-    return ref.get();
+    if (hitKey == null) {
+      DebugLog.add(
+          '_byId($table,$id): ไม่พบ record (คีย์ในตาราง: ${table_.keys.take(12).join(",")})');
+      return null;
+    }
+
+    final row = Map<String, dynamic>.from(table_[hitKey] as Map<String, dynamic>);
+    row['_fbKey'] = hitKey;
+    row['id'] ??= hitKey;
+    if (table == 'repairs') {
+      row['status'] = getEffectiveRepairStatus(row);
+    }
+    DebugLog.add(
+        '_byId($table,$id): พบ record คีย์ "$hitKey" (${row.length} ฟิลด์)');
+    return row;
   }
 
   Future<List<Map<String, dynamic>>> _all(String table) async {

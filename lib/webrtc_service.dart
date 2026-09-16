@@ -190,7 +190,13 @@ class WebRtcService {
       throw Exception('สายนี้ถูกยกเลิกแล้ว');
     }
 
-    final callData = Map<String, dynamic>.from(snap.value as Map);
+    // 🍎 [กันบั๊ก iOS] firebase_database ฝั่ง iOS บางครั้งคืน snapshot ของ node
+    // แม่ ('calls') กลับมาแทน node ลูกที่ขอ ('calls/$callId') ถ้าเจอกรณีนั้นให้
+    // เจาะลงไปที่ callId เองอีกชั้น (ดูคำอธิบายเต็มใน services.dart _byId)
+    var callData = Map<String, dynamic>.from(snap.value as Map);
+    if (!callData.containsKey('offer') && callData[callId] is Map) {
+      callData = Map<String, dynamic>.from(callData[callId] as Map);
+    }
     final offerData = Map<String, dynamic>.from(callData['offer'] as Map);
 
     _localStream = await navigator.mediaDevices.getUserMedia({
