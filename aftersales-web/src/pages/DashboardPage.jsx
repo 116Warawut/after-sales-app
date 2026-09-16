@@ -34,13 +34,12 @@ import {
   formatDateBySetting,
   displayStoredDate,
 } from "../shared/constants";
-import { Card, Modal, StarRating } from "../components/ui";
+import { Card, Modal, StarRating, DateField } from "../components/ui";
 import useDbList from "../hooks/useDbList";
 import useWebSettings from "../hooks/useWebSettings";
 import {
   computeDashboardSummary,
   getWebSettings,
-  getPersonalSettings,
   saveWebSettings,
   createNotification,
   updateRow,
@@ -313,7 +312,7 @@ function NotificationsCard({ notifications, currentUsername, onNavigate }) {
   );
 }
 
-function RecentJobsTable({ repairs, onNavigate, onSelectJob, pageSize = 5, dateFormat }) {
+function RecentJobsTable({ repairs, onNavigate, onSelectJob, pageSize = 5 }) {
   const sorted = [...repairs].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   const recent = sorted.slice(0, pageSize);
   const remaining = sorted.length - recent.length;
@@ -356,7 +355,7 @@ function RecentJobsTable({ repairs, onNavigate, onSelectJob, pageSize = 5, dateF
                     <td className="py-2.5 text-slate-700">{r.customer_username || "-"}</td>
                     <td className="py-2.5 text-slate-700">{r.machine || "-"}</td>
                     <td className="py-2.5 text-slate-700">{r.technician_username || "ยังไม่มอบหมาย"}</td>
-                    <td className="py-2.5 text-slate-500">{displayStoredDate(r.date, dateFormat)}</td>
+                    <td className="py-2.5 text-slate-500">{displayStoredDate(r.date)}</td>
                     <td className="py-2.5">
                       <span
                         className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
@@ -604,14 +603,14 @@ const REPORT_RANGE_OPTIONS = [
   { key: "week", label: "สัปดาห์นี้" },
   { key: "month", label: "เดือนนี้" },
   { key: "year", label: "ปีนี้" },
-  { key: "all", label: "ทั้งหมด" },
   { key: "custom", label: "กำหนดเอง" },
 ];
 
 // 🔴 [แก้ไข] เพิ่มโหมด "custom" (กำหนดเอง) — กรองด้วยช่วงวันที่ customStart/
 // customEnd ตรงๆ แทนที่จะเทียบกับ "วันนี้" แบบ today/week/month/year เดิม
+// 🔴 [แก้ไข] ตัดตัวเลือก "ทั้งหมด" ออกทั้งระบบตามที่ขอ — เหลือ 5 ตัวเลือก
+// (วันนี้/สัปดาห์นี้/เดือนนี้/ปีนี้/กำหนดเอง) เท่านั้น
 function filterByCreatedRange(repairs, rangeKey, customStart, customEnd) {
-  if (rangeKey === "all") return repairs;
   const now = new Date();
   if (rangeKey === "custom") {
     const start = customStart ? new Date(`${customStart}T00:00:00`) : null;
@@ -732,6 +731,11 @@ function growthPeriodLabel(rangeKey) {
 function ReportRangePicker({ range, onChange, customStart, customEnd, onCustomStartChange, onCustomEndChange }) {
   const [open, setOpen] = useState(false);
   const label = REPORT_RANGE_OPTIONS.find((r) => r.key === range)?.label;
+  // 🔴 [แก้ไข] ช่องเลือกวันที่ "กำหนดเอง" ต้องเลือกล่วงหน้าไม่ได้เด็ดขาดตามที่
+  // ขอ — จำกัด max ของทั้งวันเริ่มและวันจบไม่ให้เกินวันนี้ (วันเริ่มยังจำกัดไม่
+  // ให้เกินวันจบที่เลือกไว้ด้วยเหมือนเดิม)
+  const todayIso = toDateInputValue(new Date());
+  const startMax = customEnd && customEnd < todayIso ? customEnd : todayIso;
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <div className="relative">
@@ -761,23 +765,29 @@ function ReportRangePicker({ range, onChange, customStart, customEnd, onCustomSt
           </div>
         ) : null}
       </div>
+      {/* 🔴 [แก้ไข] ใช้ DateField (ปฏิทินที่วาดเอง) แทน <input type="date">
+          ของเบราว์เซอร์ เพื่อคุมหน้าตาการแสดงผลวันที่ให้เป็น พ.ศ. เสมอ ค่าที่
+          เก็บ/ใช้กรองข้อมูลยังเป็น ISO string "YYYY-MM-DD" เหมือนเดิมทุกประการ
+          🔴 [แก้ไข] เพิ่ม max={todayIso}/{startMax} กันไม่ให้เลือกวันในอนาคตได้
+          ทั้งช่องเริ่มและช่องจบ ตามที่ขอ */}
       {range === "custom" ? (
         <div className="flex items-center gap-1.5 text-xs text-slate-500">
-          <input
-            type="date"
-            value={customStart}
-            max={customEnd}
-            onChange={(e) => onCustomStartChange(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-100"
-          />
+          <div className="w-36">
+            <DateField
+              value={customStart}
+              max={startMax}
+              onChange={onCustomStartChange}
+            />
+          </div>
           <span>ถึง</span>
-          <input
-            type="date"
-            value={customEnd}
-            min={customStart}
-            onChange={(e) => onCustomEndChange(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-100"
-          />
+          <div className="w-36">
+            <DateField
+              value={customEnd}
+              min={customStart}
+              max={todayIso}
+              onChange={onCustomEndChange}
+            />
+          </div>
         </div>
       ) : null}
     </div>
@@ -1042,8 +1052,29 @@ function MonthlyReportCard({ data, technicians, repairs, cardTitle, periodSuffix
   );
 }
 
-function fmtShortDate(d) {
-  return `${d.getDate()}/${d.getMonth() + 1}`;
+function fmtDayLabel(d) {
+  const yearBE2 = ((d.getFullYear() + 543) % 100).toString().padStart(2, "0");
+  return `${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${yearBE2}`;
+}
+
+// 🆕 [ใหม่] จัดข้อความช่วงวันที่ของ "แท่งรายสัปดาห์" (เช่น "1-5 ก.ย. 69") — รับ
+// วันเริ่ม (รวม) กับวันจบแบบ exclusive (ไม่รวม) แล้วคำนวณ "วันสุดท้ายจริง" (จบ
+// exclusive - 1 วัน) มาทำป้ายกำกับ ถ้าอยู่เดือน/ปีเดียวกันจะย่อเหลือ
+// "D1-D2 เดือนย่อ ปี" (หรือ "D เดือนย่อ ปี" เดี่ยว ๆ ถ้าเป็นวันเดียว) ถ้าคาบ
+// เกี่ยวข้ามเดือน/ปี (เผื่อกรณี "กำหนดเอง" ที่ช่วงวันที่ไม่ได้เริ่ม/จบพอดีเดือน)
+// จะโชว่เดือนของทั้งสองฝั่งแยกกันให้ชัดเจน
+function fmtWeekRangeLabel(startDate, endExclusive) {
+  const lastDay = new Date(endExclusive);
+  lastDay.setDate(lastDay.getDate() - 1);
+  const yearBE2 = (d) => ((d.getFullYear() + 543) % 100).toString().padStart(2, "0");
+  const sameMonth = startDate.getFullYear() === lastDay.getFullYear() && startDate.getMonth() === lastDay.getMonth();
+  if (sameMonth) {
+    if (startDate.getDate() === lastDay.getDate()) {
+      return `${startDate.getDate()} ${THAI_MONTHS[startDate.getMonth()]} ${yearBE2(startDate)}`;
+    }
+    return `${startDate.getDate()}-${lastDay.getDate()} ${THAI_MONTHS[startDate.getMonth()]} ${yearBE2(startDate)}`;
+  }
+  return `${startDate.getDate()} ${THAI_MONTHS[startDate.getMonth()]} - ${lastDay.getDate()} ${THAI_MONTHS[lastDay.getMonth()]} ${yearBE2(lastDay)}`;
 }
 
 function sumRevenueInRange(repairs, start, end) {
@@ -1089,15 +1120,10 @@ function buildRevenueBuckets(repairs, rangeKey, customStart, customEnd) {
     endDate.setDate(endDate.getDate() + 1);
     end = endDate;
   } else {
-    // "all" — ย้อนไปถึงงานซ่อมที่เก่าที่สุดที่มีข้อมูลจริง (ถ้าไม่มีข้อมูลเลย
-    // ย้อนไป 12 เดือนเป็นค่าเริ่มต้นพอมีอะไรให้แสดง)
-    const earliestDate = repairs.reduce((min, r) => {
-      const d = parseIsoDate(r.created_at);
-      return d && (!min || d < min) ? d : min;
-    }, null);
-    start = earliestDate
-      ? new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1)
-      : new Date(today.getFullYear(), today.getMonth() - 11, 1);
+    // 🔴 [แก้ไข] เดิมมี branch "ทั้งหมด" ย้อนไปหางานซ่อมเก่าที่สุดตรงนี้ — ตัด
+    // ตัวเลือก "ทั้งหมด" ออกทั้งระบบตามที่ขอแล้ว เหลือ branch นี้ไว้แค่กันเหนียว
+    // เผื่อได้ key แปลกที่ไม่รู้จัก (ไม่ควรเกิดขึ้นจริง) — fallback ไปต้นเดือนนี้
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
   }
 
   const spanDays = Math.max(1, Math.round((end - start) / 86400000));
@@ -1123,18 +1149,25 @@ function buildRevenueBuckets(repairs, rangeKey, customStart, customEnd) {
     });
   }
 
+  // 🔴 [แก้ไข] เดิมนับสัปดาห์แบบ "ทีละ 7 วันจากวันเริ่มช่วง" ตรงๆ (เช่น 1-7,
+  // 8-14, 15-...) ทำให้ตัวเลขดูไม่เป็นธรรมชาติ — เปลี่ยนมาแบ่งตามสัปดาห์ปฏิทิน
+  // จริง (อาทิตย์-เสาร์) แทน สัปดาห์แรกของช่วงอาจสั้นกว่า 7 วันถ้าวันเริ่มไม่ตรง
+  // วันอาทิตย์พอดี (เช่น "1-5 ก.ย." ถ้า 1 ก.ย. เป็นวันอังคาร) และสัปดาห์สุดท้าย
+  // จะถูกตัดไม่ให้เกิน `end` (ซึ่งไม่มีทางเกินวันนี้อยู่แล้ว — ห้ามโชว์วันในอนาคต)
   if (useWeeklyBuckets) {
     const weeks = [];
-    const cursor = new Date(start);
+    let cursor = new Date(start);
     while (cursor < end) {
-      const chunkEnd = new Date(cursor);
-      chunkEnd.setDate(chunkEnd.getDate() + 7);
-      weeks.push({ start: new Date(cursor), end: chunkEnd < end ? chunkEnd : end });
-      cursor.setDate(cursor.getDate() + 7);
+      const daysUntilSaturday = 6 - cursor.getDay();
+      const calendarWeekEnd = new Date(cursor);
+      calendarWeekEnd.setDate(calendarWeekEnd.getDate() + daysUntilSaturday + 1); // exclusive (วันอาทิตย์ถัดไป)
+      const chunkEnd = calendarWeekEnd < end ? calendarWeekEnd : end;
+      weeks.push({ start: new Date(cursor), end: chunkEnd });
+      cursor = new Date(chunkEnd);
     }
     return weeks.map((w) => {
       const { paid, pending } = sumRevenueInRange(repairs, w.start, w.end);
-      return { label: fmtShortDate(w.start), paid, pending };
+      return { label: fmtWeekRangeLabel(w.start, w.end), paid, pending };
     });
   }
 
@@ -1148,7 +1181,7 @@ function buildRevenueBuckets(repairs, rangeKey, customStart, customEnd) {
     const dayEnd = new Date(d);
     dayEnd.setDate(dayEnd.getDate() + 1);
     const { paid, pending } = sumRevenueInRange(repairs, d, dayEnd);
-    return { label: fmtShortDate(d), paid, pending };
+    return { label: fmtDayLabel(d), paid, pending };
   });
 }
 
@@ -1372,11 +1405,10 @@ function ReportPreviewModal({
   totalPaid,
   totalPending,
   partsUsage,
-  dateFormat,
   onClose,
 }) {
   const now = new Date();
-  const dateLabel = formatDateBySetting(now, dateFormat);
+  const dateLabel = formatDateBySetting(now);
   const [copied, setCopied] = useState(false);
   const jobSectionLabel = periodSuffix ? `งานซ่อม${periodSuffix}` : "งานซ่อมทั้งหมด";
   const severitySectionLabel = `งานซ่อมตามระดับความรุนแรง (${periodSuffix || "ทั้งหมด"})`;
@@ -1609,13 +1641,15 @@ function ReportPreviewModal({
   );
 }
 
-function ReportZone({ repairs, partRequests, spareParts, technicians, dateFormat, onNavigate }) {
+function ReportZone({ repairs, partRequests, spareParts, technicians, onNavigate }) {
   const [showReportPreview, setShowReportPreview] = useState(false);
   const [companyName, setCompanyName] = useState("");
   // 🆕 ตัวเลือกช่วงเวลากลางของทั้งโซน "รายงานสรุป" ตามที่ขอ — ใช้ร่วมกันทุก
   // การ์ดในโซนนี้แล้ว (สถิติงานซ่อมตามความรุนแรง, รายงานประจำ..., สถิติการเงิน,
   // สถิติการเบิกอะไหล่) ไม่ต้องไปกดเลือกทีละการ์ดอีกต่อไป
-  const [masterRange, setMasterRange] = useState("all");
+  // 🔴 [แก้ไข] ตัดตัวเลือก "ทั้งหมด" ออกทั้งระบบตามที่ขอ — เปลี่ยนค่าเริ่มต้น
+  // มาเป็น "เดือนนี้" แทน (ตัวเลือกเดิม "all" ไม่มีอยู่แล้ว)
+  const [masterRange, setMasterRange] = useState("month");
   const today = new Date();
   const [customStart, setCustomStart] = useState(toDateInputValue(new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())));
   const [customEnd, setCustomEnd] = useState(toDateInputValue(today));
@@ -1748,7 +1782,6 @@ function ReportZone({ repairs, partRequests, spareParts, technicians, dateFormat
           totalPaid={totalPaid}
           totalPending={totalPending}
           partsUsage={partsUsage}
-          dateFormat={dateFormat}
           onClose={() => setShowReportPreview(false)}
         />
       ) : null}
@@ -1939,10 +1972,10 @@ useEffect(() => {
 
   useEffect(() => {
     if (!currentUsername || repairs.length === 0) return;
-    // 🔴 [แก้ไข] dateFormat ย้ายไปเป็นค่าส่วนตัวรายแอดมินแล้ว ไม่ได้อยู่ใน
-    // web_settings รวมอีกต่อไป — ข้อความสรุปนี้สร้างให้ currentUsername
-    // โดยเฉพาะ เลยต้องดึงค่าส่วนตัวของคนนั้นมาใช้ฟอร์แมตวันที่แทน
-    Promise.all([getWebSettings(), getPersonalSettings(currentUsername)]).then(([settings, personal]) => {
+    // 🔴 [แก้ไข] ตัดตัวเลือกรูปแบบวันที่ (ที่เคยเป็นค่าส่วนตัวรายแอดมิน) ออก
+    // ทั้งระบบตามที่ขอ — formatDateBySetting ไม่ต้องรับค่าตั้งค่าอีกต่อไป เลย
+    // ไม่จำเป็นต้องดึง getPersonalSettings(currentUsername) มาแค่เพื่อเรื่องนี้
+    getWebSettings().then((settings) => {
       if (settings?.notifyDailyDigest === false) return;
       const today = new Date();
       const todayStr = today.toISOString().slice(0, 10);
@@ -1959,11 +1992,12 @@ useEffect(() => {
           d.getDate() === today.getDate()
         );
       });
+      //dpoint no dpoint
       const completedToday = todayJobs.filter((r) => getEffectiveRepairStatus(r) === "เสร็จสิ้น").length;
       createNotification({
         user_username: currentUsername,
         role: "ADMIN",
-        title: `สรุปกิจกรรมวันนี้ (${formatDateBySetting(today, personal?.dateFormat)})`,
+        title: `สรุปกิจกรรมวันนี้ (${formatDateBySetting(today)})`,
         message: `งานใหม่เข้ามา ${todayJobs.length} งาน · เสร็จสิ้นแล้ว ${completedToday} งาน`,
         type: "DAILY_DIGEST",
       }).catch((err) => console.error("[DashboardPage] notify daily digest failed:", err));
@@ -2025,7 +2059,7 @@ useEffect(() => {
       </div>
 
       <div className="flex flex-wrap gap-5">
-        <RecentJobsTable repairs={repairs} onNavigate={onNavigate} onSelectJob={setSelectedJob} pageSize={dashboardPageSize} dateFormat={webSettings.dateFormat} />
+        <RecentJobsTable repairs={repairs} onNavigate={onNavigate} onSelectJob={setSelectedJob} pageSize={dashboardPageSize} />
         <NotificationsCard notifications={notifications} currentUsername={currentUsername} onNavigate={onNavigate} />
       </div>
       <div className="flex flex-wrap gap-5">
@@ -2038,7 +2072,6 @@ useEffect(() => {
         partRequests={partRequests}
         spareParts={spareParts}
         technicians={technicians}
-        dateFormat={webSettings.dateFormat}
         onNavigate={onNavigate}
       />
 
@@ -2046,7 +2079,6 @@ useEffect(() => {
         <JobDetailModal
           job={selectedJob}
           technicians={technicians}
-          dateFormat={webSettings.dateFormat}
           onClose={() => setSelectedJob(null)}
         />
       ) : null}

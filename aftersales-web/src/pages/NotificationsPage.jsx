@@ -50,15 +50,13 @@ const TYPE_LABEL = {
   DAILY_DIGEST: "สรุปกิจกรรมประจำวัน",
 };
 
-function formatDateTime(iso, dateFormat) {
+function formatDateTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
+  // 🔴 [แก้ไข] ตัดตัวเลือกปี ค.ศ. ออกทั้งระบบตามที่ขอ — locale "th-TH" ให้ปี
+  // พ.ศ. เป็นค่าเริ่มต้นอยู่แล้ว
   const opts = { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" };
-  // 🆕 ค่าเริ่มต้นของ locale "th-TH" คือปี พ.ศ. อยู่แล้ว — ถ้าตั้งค่าเป็น ค.ศ.
-  // (dateFormat === "ce") ต้องระบุ calendar: "gregory" ตรงๆ ไม่งั้น Intl จะให้
-  // ปี พ.ศ. เสมอไม่ว่าจะตั้งค่าอะไร
-  if (dateFormat === "ce") opts.calendar = "gregory";
   return d.toLocaleString("th-TH", opts);
 }
 
@@ -90,7 +88,7 @@ function targetLinkFor(n) {
   return { page: "jobs", label: "ไปที่งานนี้" };
 }
 
-function NotificationDetailModal({ notification, onClose, onNavigate, onDelete, deleting, dateFormat }) {
+function NotificationDetailModal({ notification, onClose, onNavigate, onDelete, deleting }) {
   const n = notification;
   const link = targetLinkFor(n);
   return (
@@ -134,7 +132,7 @@ function NotificationDetailModal({ notification, onClose, onNavigate, onDelete, 
             {targetIdLabelFor(n)}: #{n.target_id}
           </p>
         ) : null}
-        {n.created_at ? <p className="text-xs text-slate-400">{formatDateTime(n.created_at, dateFormat)}</p> : null}
+        {n.created_at ? <p className="text-xs text-slate-400">{formatDateTime(n.created_at)}</p> : null}
       </div>
     </Modal>
   );
@@ -344,7 +342,7 @@ export default function NotificationsPage({ onNavigate, initialQuery }) {
                           ข้อความใหม่ — {n.title?.replace("ข้อความใหม่: ", "") || `งาน #${g.jobId}`}
                         </p>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{n.message}</p>
-                        {n.created_at ? <p className="text-[11px] text-slate-400 mt-1">{formatDateTime(n.created_at, webSettings.dateFormat)}</p> : null}
+                        {n.created_at ? <p className="text-[11px] text-slate-400 mt-1">{formatDateTime(n.created_at)}</p> : null}
                       </div>
                       {g.unreadCount > 0 ? (
                         <span className="text-[11px] font-semibold bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center shrink-0">
@@ -375,7 +373,7 @@ export default function NotificationsPage({ onNavigate, initialQuery }) {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-slate-800">{n.title || "ข้อความใหม่"}</p>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{n.message}</p>
-                        {n.created_at ? <p className="text-[11px] text-slate-400 mt-1">{formatDateTime(n.created_at, webSettings.dateFormat)}</p> : null}
+                        {n.created_at ? <p className="text-[11px] text-slate-400 mt-1">{formatDateTime(n.created_at)}</p> : null}
                       </div>
                       {!n.is_read ? <span className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0" /> : null}
                     </button>
@@ -401,7 +399,7 @@ export default function NotificationsPage({ onNavigate, initialQuery }) {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-800">{n.title || "แจ้งเตือน"}</p>
                       <p className="text-xs text-slate-500 mt-0.5 truncate">{n.message}</p>
-                      {n.created_at ? <p className="text-[11px] text-slate-400 mt-1">{formatDateTime(n.created_at, webSettings.dateFormat)}</p> : null}
+                      {n.created_at ? <p className="text-[11px] text-slate-400 mt-1">{formatDateTime(n.created_at)}</p> : null}
                     </div>
                   </button>
                   <button
@@ -432,7 +430,6 @@ export default function NotificationsPage({ onNavigate, initialQuery }) {
           onNavigate={onNavigate}
           onDelete={() => setDeleteTarget(viewingNotification)}
           deleting={deleting}
-          dateFormat={webSettings.dateFormat}
         />
       ) : null}
 

@@ -79,7 +79,12 @@ class Repair {
   // (เช่น "18") ไม่ใช่ num เลย ซึ่ง `as num?` เดิมก็ยัง throw เหมือนกัน
   factory Repair.fromJson(Map<String, dynamic> json) {
     return Repair(
-      id: toIntOrNull(json['id']),
+      // 🐛 [แก้บัค] เดิมใช้ toIntOrNull(json['id']) เชื่อ field 'id' ข้างในตรง ๆ
+      // ซึ่งอาจไม่ตรงกับคีย์จริงใน Firebase ของ record นี้ ทำให้พอเอา id ไปเปิด
+      // หน้ารายละเอียดต่อ (CustomerJobDetailPage) แล้วเปิดไปเจอ record คนละใบ
+      // (ข้อมูลว่างเปล่า) — ใช้ resolveRecordId() ที่ยึดคีย์จริง (_fbKey) เป็น
+      // หลักแทน ดูเหตุผลเต็ม ๆ ใน utils/firebase_number.dart
+      id: resolveRecordId(json),
       ticketNo: json['ticketNo']?.toString(),
       customerUsername: json['customer_username']?.toString(),
       technicianUsername: json['technician_username']?.toString(),

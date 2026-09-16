@@ -510,7 +510,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
                             <span className="text-xs text-slate-400">-</span>
                           )}
                         </td>
-                        <td className="py-2.5 text-slate-500">{displayStoredDate(j.date, webSettings.dateFormat)}</td>
+                        <td className="py-2.5 text-slate-500">{displayStoredDate(j.date)}</td>
                         <td className="py-2.5 text-slate-500">{j.appointment_time ? `${j.appointment_time} น.` : "-"}</td>
                         <td className="py-2.5">
                           <span
@@ -568,7 +568,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
       </Card>
 
       {selectedJob ? (
-        <JobDetailModal job={selectedJob} technicians={technicians} dateFormat={webSettings.dateFormat} onClose={() => setSelectedJob(null)} />
+        <JobDetailModal job={selectedJob} technicians={technicians} onClose={() => setSelectedJob(null)} />
       ) : null}
       {showBulkAssign ? (
         <BulkAssignModal

@@ -45,6 +45,11 @@ void setupIncomingCallListener(String username) {
   );
 }
 
+// 🔴 [ชั่วคราว-Debug] เก็บ error ที่เกิดตอน main() เริ่มทำงาน เพื่อโชว์บนหน้าจอจริง
+// แทนที่จะเห็นแค่ใน debugPrint (มองไม่เห็นถ้าไม่ได้ต่อ Xcode/เครื่อง Mac)
+// ลบตัวแปรนี้กับส่วนที่ใช้งานทิ้งได้เมื่อ debug เสร็จแล้ว
+final List<String> _startupErrors = [];
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([
@@ -54,8 +59,9 @@ void main() async {
 
   try {
     await Firebase.initializeApp();
-  } catch (e) {
+  } catch (e, st) {
     debugPrint('Firebase init error: $e');
+    _startupErrors.add('Firebase.initializeApp() ล้มเหลว:\n$e\n\n$st');
   }
 
   try {
@@ -63,12 +69,14 @@ void main() async {
     await db.DatabaseHelper.instance.init().timeout(const Duration(seconds: 4));
   } catch (e) {
     debugPrint('DatabaseHelper init skipped/error: $e');
+    _startupErrors.add('DatabaseHelper.init() ล้มเหลว/timeout:\n$e');
   }
 
   try {
     await PushNotificationService.initialize();
   } catch (e) {
     debugPrint('PushNotification init error: $e');
+    _startupErrors.add('PushNotificationService.initialize() ล้มเหลว:\n$e');
   }
 
   Widget initialHome = const FirstPage();
@@ -98,14 +106,24 @@ void main() async {
     }
   } catch (e) {
     debugPrint('Session load error: $e');
+    _startupErrors.add('SessionStorage.load() ล้มเหลว:\n$e');
   }
 
-  runApp(MainApp(initialHome: initialHome));
+  runApp(MainApp(
+    initialHome: initialHome,
+    startupErrors: List.unmodifiable(_startupErrors),
+  ));
 }
 class MainApp extends StatelessWidget {
   final Widget initialHome;
+  // 🔴 [ชั่วคราว-Debug] error ที่เกิดระหว่าง main() ไว้โชว์เป็นแบนเนอร์แดงบนหน้าจอ
+  final List<String> startupErrors;
 
-  const MainApp({super.key, this.initialHome = const FirstPage()});
+  const MainApp({
+    super.key,
+    this.initialHome = const FirstPage(),
+    this.startupErrors = const [],
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -164,7 +182,14 @@ class MainApp extends StatelessWidget {
               : child,
         );
       },
-      home: initialHome,
+      // 🔴 [ชั่วคราว-Debug] แสดง error ตอน startup เป็นแบนเนอร์สีแดงคลุมทับหน้าจอ
+      // ไม่ต้องต่อ Xcode ก็เห็น error จริงบนเครื่อง ลบ builder ทับนี้ทิ้งได้เมื่อ debug เสร็จ
+      home: startupErrors.isEmpty
+          ? initialHome
+          : _StartupErrorOverlay(
+              errors: startupErrors,
+              child: initialHome,
+            ),
       routes: {
         '/home': (context) => const HomeCustomer(),
         '/history': (context) => const HistoryCustomer(),
@@ -180,4 +205,85 @@ class MainApp extends StatelessWidget {
       },
     );
    }
+}
+
+// 🔴 [ชั่วคราว-Debug] แบนเนอร์แสดง error ที่เกิดตอน startup (Firebase/DB/Push/Session)
+// ครอบอยู่ด้านบนของหน้าแรก เลื่อนอ่านได้ ไม่บล็อกการใช้แอปด้านล่าง
+// ---- ลบ Widget นี้ทั้งหมดทิ้งได้เมื่อ debug เสร็จแล้ว ----
+class _StartupErrorOverlay extends StatelessWidget {
+  final List<String> errors;
+  final Widget child;
+
+  const _StartupErrorOverlay({required this.errors, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            bottom: false,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                ),
+                margin: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade800,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black38, blurRadius: 6),
+                  ],
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Colors.white),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'พบ Error ตอนเปิดแอป (Startup)',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      for (int i = 0; i < errors.length; i++) ...[
+                        SelectableText(
+                          '${i + 1}. ${errors[i]}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        if (i != errors.length - 1)
+                          const Divider(color: Colors.white24, height: 16),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

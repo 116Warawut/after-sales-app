@@ -1,3 +1,9 @@
+// 🔴 [ใหม่] Geoapify API Key เดียวกับที่ฝั่ง Flutter ใช้ (lib/geoapify_service.dart)
+// ใช้สำหรับดึงไทล์แผนที่ + คำนวณเส้นทาง/ระยะทาง/เวลาให้แผนที่ตำแหน่งช่างฝั่งเว็บ
+// (JobLocationMap ใน components/JobDetailModal.jsx) แสดงผลแบบเดียวกับหน้าจอ
+// ติดตามงานซ่อมของแอดมินบนมือถือ (admin_tracking.dart)
+export const GEOAPIFY_API_KEY = "a59572fd4e7b414b9a477031873bb341";
+
 export const COLORS = {
   blue: { bg: "bg-blue-50", text: "text-blue-600", dot: "bg-blue-500", border: "border-blue-200" },
   orange: { bg: "bg-orange-50", text: "text-orange-600", dot: "bg-orange-500", border: "border-orange-200" },
@@ -214,32 +220,42 @@ export function extractRating(job = {}) {
   };
 }
 
-// 🆕 จัดรูปแบบวันที่ตามตัวเลือก "รูปแบบวันที่" ในหน้าตั้งค่า (พ.ศ./ค.ศ.) — รับ
-// Date object แล้วคืนสตริง วว/ดด/ปปปป โดย dateFormat === "ce" จะได้ปี ค.ศ. ตรงๆ
-// ส่วนค่าอื่น (หรือไม่ได้ส่งมา) จะได้ปี พ.ศ. (ค.ศ. + 543) เป็นค่าเริ่มต้นเดิม
-export function formatDateBySetting(date, dateFormat) {
+// 🆕 ชื่อเดือนย่อแบบไทย (index 0 = ม.ค.)
+const THAI_MONTHS_ABBR = [
+  "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+  "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+];
+
+// 🔴 [แก้ไข] ตัดตัวเลือก "รูปแบบวันที่" (พ.ศ./ค.ศ.) ในหน้าตั้งค่าออกทั้งระบบ
+// ตามที่ขอ — เหลือแสดงผลแบบ พ.ศ. เดียวเท่านั้นทุกที่ในเว็บ ฟังก์ชันนี้จึงไม่
+// รับพารามิเตอร์ dateFormat อีกต่อไป รับ Date object แล้วคืนสตริง
+// "D ชื่อเดือนย่อ ปี พ.ศ." เสมอ (เช่น 12 ก.ย. 2569)
+export function formatDateBySetting(date) {
   if (!date || isNaN(date.getTime?.())) return "-";
-  const y = dateFormat === "ce" ? date.getFullYear() : date.getFullYear() + 543;
-  return `${date.getDate()}/${date.getMonth() + 1}/${y}`;
+  const day = date.getDate();
+  const month = date.getMonth() + 1;
+  const yearBE = date.getFullYear() + 543;
+  return `${day} ${THAI_MONTHS_ABBR[month - 1]} ${yearBE}`;
 }
 
 // 🆕 ฟิลด์ "date" (วันนัดหมาย/วันที่ของงานซ่อม) เป็นข้อความที่เก็บลง Database
 // ตรงๆ ในรูปแบบ "D/M/ปี พ.ศ." ตายตัวเสมอ (ทั้งจากแอปมือถือและจากปฏิทินฝั่งเว็บ
 // ตอนนัดหมาย) เพราะทั้งระบบ (ตัวกรองช่วงเวลา, การเรียงลำดับ ฯลฯ) ยังอ่านฟิลด์
 // นี้โดยคาดหวังรูปแบบ พ.ศ. เป๊ะๆ อยู่ — ฟังก์ชันนี้ "ไม่ได้แก้ข้อมูลที่เก็บไว้
-// เลย" แค่แปลงเฉพาะตอนจะแสดงผลบนจอเท่านั้น (ถ้าตั้งค่าเป็น ค.ศ. ก็แปลงเลขปีให้
-// ดูตอนแสดง แต่ค่าจริงในฐานข้อมูลยังเป็น พ.ศ. เหมือนเดิมทุกประการ) ปลอดภัยกับ
-// ตัวกรอง/เรียงลำดับที่อ่านฟิลด์ดิบอยู่แล้ว เพราะไม่ได้ไปยุ่งกับค่าที่เก็บจริง
-export function displayStoredDate(dateStr, dateFormat) {
+// เลย" แค่แปลงเฉพาะตอนจะแสดงผลบนจอเท่านั้น (จากตัวเลขล้วน "D/M/ปีพ.ศ." เป็น
+// "D ชื่อเดือนย่อ ปีพ.ศ." เช่น 1/12/2569 → 1 ธ.ค. 2569)
+// 🔴 [แก้ไข] ตัดพารามิเตอร์/ตัวเลือก ค.ศ. ออกทั้งระบบตามที่ขอ — เหลือ พ.ศ.
+// อย่างเดียวเสมอ
+export function displayStoredDate(dateStr) {
   if (!dateStr) return "-";
-  if (dateFormat !== "ce") return dateStr; // พ.ศ. คือรูปแบบที่เก็บอยู่แล้ว ไม่ต้องแปลง
   const parts = String(dateStr).split("/");
   if (parts.length !== 3) return dateStr; // รูปแบบไม่ตรงที่คาด แสดงค่าดิบไว้ก่อน ดีกว่าทำพัง
   const day = Number(parts[0]);
   const month = Number(parts[1]);
   const yearBE = Number(parts[2]);
   if (!day || !month || !yearBE) return dateStr;
-  return `${day}/${month}/${yearBE - 543}`;
+  const monthLabel = THAI_MONTHS_ABBR[month - 1] || month;
+  return `${day} ${monthLabel} ${yearBE}`;
 }
 
 // ---------------------------------------------------------------------------

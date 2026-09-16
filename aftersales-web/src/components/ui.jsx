@@ -1,5 +1,5 @@
-import React from "react";
-import { X, Loader2, Star, ChevronLeft, ChevronRight } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { X, Loader2, Star, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 
 // การ์ดพื้นฐาน — ใช้ห่อทุกบล็อกเนื้อหาให้หน้าตาสม่ำเสมอกันทั้งเว็บ
 export function Card({ children, className = "" }) {
@@ -262,6 +262,169 @@ export function Pagination({ page, totalPages, onChange, totalItems, pageSize })
           <ChevronRight size={15} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 🆕 [ใหม่] ปฏิทินเลือกวันที่แบบสร้างเอง — แทนที่ <input type="date"> เดิม
+// (ตอนใช้ input ของเบราว์เซอร์ตรงๆ รูปแบบวันที่ที่โชว์ในช่อง — วว/ดด/ปปปป หรือ
+// ดด/วว/ปปปป — ถูกกำหนดโดยภาษา/OS ของผู้ใช้เอง ไม่ใช่โดยเว็บนี้) ปฏิทินนี้วาด
+// เองทั้งหมดด้วย React ธรรมดา จึงคุมข้อความที่โชว์ได้เต็มที่
+// 🔴 [แก้ไข] ตัดตัวเลือกปี ค.ศ. ออกทั้งระบบตามที่ขอ — ช่องปุ่มและหัวปฏิทินโชว่
+// ปี พ.ศ. เสมอ (เดือนเป็นชื่อเต็มภาษาไทยเสมอเช่นเดิม)
+//
+// รับ/คืนค่าเป็น ISO string "YYYY-MM-DD" เหมือน <input type="date"> เดิมทุก
+// ประการ (ไม่กระทบโค้ดส่วนอื่นที่อ่าน/บันทึกค่านี้ต่อ) — เปลี่ยนแค่หน้าตาช่อง
+// กรอกกับปฏิทินป๊อปอัปเท่านั้น
+// ---------------------------------------------------------------------------
+const THAI_MONTHS_FULL = [
+  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+];
+const THAI_MONTHS_ABBR = [
+  "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+  "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+];
+const THAI_WEEKDAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+
+function isoToYMD(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return { y, m, d };
+}
+function ymdToIso(y, m, d) {
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function displayYear(gregorianYear) {
+  return gregorianYear + 543;
+}
+
+export function DateField({ value, onChange, min, max, disabled, placeholder = "เลือกวันที่" }) {
+  const [open, setOpen] = useState(false);
+  const selected = isoToYMD(value);
+  const minYMD = isoToYMD(min);
+  const maxYMD = isoToYMD(max);
+  const today = new Date();
+  // เดือนที่กำลังเปิดดูอยู่ในปฏิทิน (เริ่มจากวันที่เลือกไว้ ถ้ายังไม่เลือกก็เริ่มจากเดือนปัจจุบัน)
+  const [viewY, setViewY] = useState(selected ? selected.y : today.getFullYear());
+  const [viewM, setViewM] = useState(selected ? selected.m : today.getMonth() + 1);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const s = isoToYMD(value);
+    setViewY(s ? s.y : today.getFullYear());
+    setViewM(s ? s.m : today.getMonth() + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    function onEsc(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  const label = selected
+    ? `${selected.d} ${THAI_MONTHS_ABBR[selected.m - 1]} ${displayYear(selected.y)}`
+    : placeholder;
+
+  function ymdKey(y, m, d) {
+    return y * 10000 + m * 100 + d;
+  }
+  const minKey = minYMD ? ymdKey(minYMD.y, minYMD.m, minYMD.d) : null;
+  const maxKey = maxYMD ? ymdKey(maxYMD.y, maxYMD.m, maxYMD.d) : null;
+  function isDisabled(y, m, d) {
+    const k = ymdKey(y, m, d);
+    if (minKey != null && k < minKey) return true;
+    if (maxKey != null && k > maxKey) return true;
+    return false;
+  }
+
+  const firstOfMonth = new Date(viewY, viewM - 1, 1);
+  const daysInMonth = new Date(viewY, viewM, 0).getDate();
+  const startWeekday = firstOfMonth.getDay(); // 0 = อาทิตย์
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  function goPrevMonth() {
+    if (viewM === 1) { setViewM(12); setViewY(viewY - 1); } else setViewM(viewM - 1);
+  }
+  function goNextMonth() {
+    if (viewM === 12) { setViewM(1); setViewY(viewY + 1); } else setViewM(viewM + 1);
+  }
+  function pickDay(d) {
+    if (isDisabled(viewY, viewM, d)) return;
+    onChange(ymdToIso(viewY, viewM, d));
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-60 disabled:cursor-not-allowed ${selected ? "text-slate-700" : "text-slate-400"}`}
+      >
+        <Calendar size={15} className="text-slate-400 shrink-0" />
+        <span className="truncate">{label}</span>
+      </button>
+
+      {open ? (
+        // 🎨 ป๊อปอัปปฏิทิน — การ์ดขาวลอยใต้ปุ่ม เงาเบา ๆ กันขอบจอบัง
+        <div className="absolute z-20 mt-1.5 w-72 bg-white rounded-xl border border-slate-200 shadow-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={goPrevMonth} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-50">
+              <ChevronLeft size={15} />
+            </button>
+            <p className="text-sm font-semibold text-slate-700">
+              {THAI_MONTHS_FULL[viewM - 1]} {displayYear(viewY)}
+            </p>
+            <button type="button" onClick={goNextMonth} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-50">
+              <ChevronRight size={15} />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 mb-1">
+            {THAI_WEEKDAYS.map((w) => (
+              <div key={w} className="text-center text-[11px] text-slate-400 py-1">{w}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-y-1">
+            {cells.map((d, i) => {
+              if (d == null) return <div key={`blank-${i}`} />;
+              const isSelected = selected && selected.y === viewY && selected.m === viewM && selected.d === d;
+              const isToday = today.getFullYear() === viewY && today.getMonth() + 1 === viewM && today.getDate() === d;
+              const dis = isDisabled(viewY, viewM, d);
+              return (
+                <button
+                  type="button"
+                  key={d}
+                  disabled={dis}
+                  onClick={() => pickDay(d)}
+                  className={`w-9 h-9 mx-auto rounded-lg text-sm flex items-center justify-center
+                    ${isSelected ? "bg-blue-500 text-white font-semibold" : dis ? "text-slate-300 cursor-not-allowed" : "text-slate-700 hover:bg-slate-100"}
+                    ${isToday && !isSelected ? "border border-blue-200" : ""}`}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

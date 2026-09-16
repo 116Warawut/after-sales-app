@@ -365,6 +365,13 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
       return;
     }
 
+    // 🐛 [แก้บัค] ปิดคีย์บอร์ดก่อนเริ่ม submit เสมอ — เดิมถ้าผู้ใช้กด "แจ้งซ่อม"
+    // ขณะโฟกัสอยู่ที่ช่องกรอกข้อมูล (เช่นเบอร์โทร/รายละเอียด) แล้วหน้านี้ถูก
+    // pop ออกไปทันทีตอนจบ (Navigator.of(context).pop(true)) โดยไม่เคย unfocus
+    // มาก่อนเลย คีย์บอร์ดจะค้างอยู่บนหน้าจอ (โดยเฉพาะฝั่ง iOS ที่ไม่ auto-dismiss
+    // ตอนเปลี่ยนหน้าให้เอง) กดปิดเองไม่ได้ต้องรอ mount ใหม่ถึงหาย
+    FocusScope.of(context).unfocus();
+
     setState(() => _isSubmitting = true);
 
     try {

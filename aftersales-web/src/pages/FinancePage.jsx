@@ -192,13 +192,13 @@ function formatCustomerAddress(c) {
   return parts.length > 0 ? parts.join(" ") : "-";
 }
 
-function InvoiceModal({ repair, customer, companySettings, dateFormat, onClose }) {
+function InvoiceModal({ repair, customer, companySettings, onClose }) {
   const items = Array.isArray(repair.invoice_items) ? repair.invoice_items : [];
   const laborCost = Number(repair.labor_cost) || 0;
   const total = Number(repair.total_price) || 0;
   const isPaid = repair.is_paid === 1 || repair.is_paid === true;
   const issuedDate = repair.invoiced_at ? new Date(repair.invoiced_at) : null;
-  const dateLabel = issuedDate ? formatDateBySetting(issuedDate, dateFormat) : "-";
+  const dateLabel = issuedDate ? formatDateBySetting(issuedDate) : "-";
   const customerName = customer ? [customer.name, customer.surname].filter(Boolean).join(" ") || customer.username : repair.customer_username || "-";
 
   return (
@@ -256,7 +256,7 @@ function InvoiceModal({ repair, customer, companySettings, dateFormat, onClose }
             <p className="text-xs font-semibold text-slate-500 mb-1">งานซ่อม</p>
             <p className="text-sm font-medium text-slate-800">{repair.ticketNo || `#${repair.id}`}</p>
             <p className="text-xs text-slate-500 mt-1">{repair.machine || "-"}</p>
-            <p className="text-xs text-slate-500 mt-1">วันนัดหมาย: {displayStoredDate(repair.date, dateFormat)}</p>
+            <p className="text-xs text-slate-500 mt-1">วันนัดหมาย: {displayStoredDate(repair.date)}</p>
           </div>
         </div>
 
@@ -534,7 +534,6 @@ export default function FinancePage() {
           repair={viewingInvoice}
           customer={customers.find((c) => c.username === viewingInvoice.customer_username)}
           companySettings={companySettings}
-          dateFormat={webSettings.dateFormat}
           onClose={() => setViewingInvoice(null)}
         />
       ) : null}

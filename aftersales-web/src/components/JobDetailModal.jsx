@@ -1,9 +1,11 @@
-import React, { useState } from "react";
-import { X, User, Wrench, UserCog, Calendar, MapPin, AlertTriangle, Loader2, Navigation, ImageOff, ChevronLeft, ChevronRight, FileText } from "lucide-react";
-import { STATUS_BADGE, SEVERITY_BADGE, extractSeverity, displayStatus, extractRating, displayStoredDate } from "../shared/constants";
+import React, { useState, useEffect, useRef } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { X, User, Wrench, UserCog, Calendar, MapPin, AlertTriangle, Loader2, Navigation, ImageOff, ChevronLeft, ChevronRight, FileText, Bike } from "lucide-react";
+import { STATUS_BADGE, SEVERITY_BADGE, extractSeverity, displayStatus, extractRating, displayStoredDate, GEOAPIFY_API_KEY } from "../shared/constants";
 import { assignTechnicianToRepair, logActivity, createNotification, getWebSettings } from "../services/firebaseDb";
 import { getSessionAdmin } from "../services/session";
-import { StarRating } from "./ui";
+import { StarRating, DateField } from "./ui";
 
 // ---------------------------------------------------------------------------
 // 🎨 ภาพรวมสไตล์หน้านี้: modal popup กลางจอ (ไม่ได้ใช้ Modal จาก components/ui.jsx
@@ -52,14 +54,13 @@ function formatThaiDate(isoDateStr) {
   return `${d}/${m}/${y + 543}`;
 }
 
-function formatReportDate(rawDate, dateFormat) {
+function formatReportDate(rawDate) {
   if (!rawDate) return "";
   const d = new Date(rawDate);
   if (isNaN(d.getTime())) return String(rawDate);
+  // 🔴 [แก้ไข] ตัดตัวเลือกปี ค.ศ. ออกทั้งระบบตามที่ขอ — locale "th-TH" ให้ปี
+  // พ.ศ. เป็นค่าเริ่มต้นอยู่แล้ว เลยไม่ต้องระบุ calendar เพิ่มอีกต่อไป
   const opts = { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" };
-  // 🆕 ค่าเริ่มต้นของ locale "th-TH" คือปี พ.ศ. อยู่แล้ว — ต้องระบุ
-  // calendar: "gregory" ตรงๆ ถ้าอยากได้ปี ค.ศ. ตามตั้งค่า
-  if (dateFormat === "ce") opts.calendar = "gregory";
   return d.toLocaleString("th-TH", opts);
 }
 
@@ -69,7 +70,7 @@ function formatReportDate(rawDate, dateFormat) {
 // (submitRepairReport()) แล้ว ชื่อ field จริงคือ report_problem_detail /
 // report_before_photo / report_after_photo / report_slip_photo /
 // report_submitted_at / report_form_code แก้ให้ตรงเป๊ะ ห้ามเดาอีก
-function getRepairReport(job, dateFormat) {
+function getRepairReport(job) {
   if (!job) {
     return { text: "", beforePhoto: "", afterPhoto: "", slipPhoto: "", formCode: "", reportedAt: "" };
   }
@@ -80,7 +81,7 @@ function getRepairReport(job, dateFormat) {
     afterPhoto: job.report_after_photo || "",
     slipPhoto: job.report_slip_photo || "",
     formCode: job.report_form_code || "",
-    reportedAt: formatReportDate(job.report_submitted_at || "", dateFormat),
+    reportedAt: formatReportDate(job.report_submitted_at || ""),
   };
 }
 
@@ -169,40 +170,163 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// 🔵/🔴 ไอคอนหมุดแบบ DivIcon (ไม่ต้องพึ่งไฟล์รูป marker ของ Leaflet ที่มักมีปัญหา
+// path หายตอน build ด้วย Vite) — สีและสัญลักษณ์ตรงกับฝั่งมือถือ (route_map_view.dart):
+// ช่าง = วงกลมสีฟ้า ไอคอนมอเตอร์ไซค์, ลูกค้า = วงกลมสีน้ำเงินเข้ม ไอคอนหมุด
+function pinDivIcon(color, symbol) {
+  return L.divIcon({
+    className: "",
+    html:
+      `<div style="width:32px;height:32px;border-radius:50%;background:${color};` +
+      `border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.35);` +
+      `display:flex;align-items:center;justify-content:center;font-size:16px;">${symbol}</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+}
+const TECH_ICON = pinDivIcon("#2563eb", "🛵");
+const DEST_ICON = pinDivIcon("#3b82f6", "📍");
+
+// 🔴 [แก้ไข] เดิม JobLocationMap เป็นแค่ iframe ฝัง OpenStreetMap แบบ static —
+// ปักหมุดได้แค่จุดหมาย (ลูกค้า) เท่านั้น ไม่เคยปักหมุดตำแหน่งช่างบนแผนที่จริง
+// เลยสักครั้ง (ใช้พิกัดช่างแค่คำนวณระยะเส้นตรงไว้โชว์เป็นตัวเลข) ทำให้แอดมิน
+// "มองไม่เห็น" ตำแหน่งช่างบนแผนที่จริง ๆ ต่างจากฝั่งมือถือที่ช่าง/ลูกค้าเห็น
+// หมุดกันแบบ real-time (technician_tracking.dart / customer_tracking.dart)
+// — เปลี่ยนมาใช้ Leaflet (แผนที่โต้ตอบได้จริง ซูม/ลากได้) + ไทล์จาก Geoapify
+// (ผู้ให้บริการเดียวกับที่แอปมือถือใช้) ปักหมุดทั้งช่างและลูกค้า พร้อมเส้นทาง
+// จริงบนถนนจาก Geoapify Routing API (เหมือน GeoapifyService.getRouteInfo ฝั่ง
+// Flutter เป๊ะ) ตำแหน่งช่างจะขยับตามพิกัดล่าสุดที่ได้จาก useDbList("technicians")
+// ของหน้าแม่ (real-time จาก Firebase อยู่แล้ว) — refetch เส้นทางใหม่เฉพาะตอน
+// ช่างขยับเกิน ~30 เมตร กันยิง API รัวเกินไปเวลาพิกัด GPS สั่นนิดหน่อย
 function JobLocationMap({ job, technician }) {
   const destLat = Number(job.dest_lat);
   const destLng = Number(job.dest_lng);
   const hasDest = Number.isFinite(destLat) && Number.isFinite(destLng);
-  if (!hasDest) return null;
 
   const techLat = Number(technician?.current_lat);
   const techLng = Number(technician?.current_lng);
   const hasTech = Number.isFinite(techLat) && Number.isFinite(techLng);
 
-  // bbox ครอบคลุมทั้งจุดหมายและตำแหน่งช่าง (ถ้ามี) เผื่อขอบไว้เล็กน้อยให้ดูง่าย
-  const lats = hasTech ? [destLat, techLat] : [destLat];
-  const lngs = hasTech ? [destLng, techLng] : [destLng];
-  const pad = 0.01;
-  const minLat = Math.min(...lats) - pad;
-  const maxLat = Math.max(...lats) + pad;
-  const minLng = Math.min(...lngs) - pad;
-  const maxLng = Math.max(...lngs) + pad;
-  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${minLng}%2C${minLat}%2C${maxLng}%2C${maxLat}&layer=mapnik&marker=${destLat}%2C${destLng}`;
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
+  const techMarkerRef = useRef(null);
+  const destMarkerRef = useRef(null);
+  const routeLineRef = useRef(null);
+  const lastRoutedRef = useRef(null); // {lat, lng} จุดล่าสุดที่ขอเส้นทางไปแล้ว
 
-  const distanceKm = hasTech ? haversineKm(destLat, destLng, techLat, techLng) : null;
+  const [routeInfo, setRouteInfo] = useState(null); // {distanceKm, minutes}
+  const [routeError, setRouteError] = useState(false);
+
+  // 🗺️ สร้างแผนที่ครั้งเดียวตอน mount (ถ้ามีจุดหมาย)
+  useEffect(() => {
+    if (!hasDest || !mapContainerRef.current || mapRef.current) return;
+
+    const map = L.map(mapContainerRef.current, {
+      center: [destLat, destLng],
+      zoom: 14,
+      attributionControl: true,
+    });
+    L.tileLayer(
+      `https://maps.geoapify.com/v1/tile/osm-carto/{z}/{x}/{y}.png?apiKey=${GEOAPIFY_API_KEY}`,
+      { maxZoom: 20, attribution: "Powered by Geoapify | © OpenStreetMap contributors" }
+    ).addTo(map);
+
+    destMarkerRef.current = L.marker([destLat, destLng], { icon: DEST_ICON }).addTo(map);
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      techMarkerRef.current = null;
+      destMarkerRef.current = null;
+      routeLineRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasDest, destLat, destLng]);
+
+  // 📍 อัปเดต/สร้างหมุดช่างเมื่อพิกัดเปลี่ยน + ขอเส้นทางใหม่จาก Geoapify ถ้าขยับ
+  // ไปพอสมควรแล้ว (เหมือน technician_tracking.dart ฝั่งมือถือ)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !hasDest) return;
+
+    if (!hasTech) {
+      if (techMarkerRef.current) {
+        map.removeLayer(techMarkerRef.current);
+        techMarkerRef.current = null;
+      }
+      return;
+    }
+
+    if (techMarkerRef.current) {
+      techMarkerRef.current.setLatLng([techLat, techLng]);
+    } else {
+      techMarkerRef.current = L.marker([techLat, techLng], { icon: TECH_ICON }).addTo(map);
+    }
+
+    const bounds = L.latLngBounds([[destLat, destLng], [techLat, techLng]]);
+    map.fitBounds(bounds, { padding: [48, 48] });
+
+    const movedMeters = lastRoutedRef.current
+      ? haversineKm(lastRoutedRef.current.lat, lastRoutedRef.current.lng, techLat, techLng) * 1000
+      : Infinity;
+    if (movedMeters < 30) return;
+    lastRoutedRef.current = { lat: techLat, lng: techLng };
+
+    const url =
+      `https://api.geoapify.com/v1/routing?waypoints=${techLat},${techLng}%7C${destLat},${destLng}` +
+      `&mode=drive&apiKey=${GEOAPIFY_API_KEY}`;
+
+    let cancelled = false;
+    fetch(url)
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((data) => {
+        if (cancelled) return;
+        const feature = data?.features?.[0];
+        if (!feature) throw new Error("no route feature");
+        const distanceKm = feature.properties.distance / 1000;
+        const minutes = Math.round(feature.properties.time / 60);
+        setRouteInfo({ distanceKm, minutes });
+        setRouteError(false);
+
+        const geometry = feature.geometry;
+        const lines = geometry?.type === "MultiLineString" ? geometry.coordinates : geometry?.type === "LineString" ? [geometry.coordinates] : [];
+        const latlngs = lines.flat().map(([lng, lat]) => [lat, lng]);
+        if (routeLineRef.current) map.removeLayer(routeLineRef.current);
+        if (latlngs.length >= 2) {
+          routeLineRef.current = L.polyline(latlngs, { color: "#3b82f6", weight: 5 }).addTo(map);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRouteError(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasDest, hasTech, destLat, destLng, techLat, techLng]);
+
+  if (!hasDest) return null;
+
+  const straightLineKm = hasTech ? haversineKm(destLat, destLng, techLat, techLng) : null;
   const directionsUrl = hasTech
     ? `https://www.google.com/maps/dir/?api=1&origin=${techLat},${techLng}&destination=${destLat},${destLng}`
     : `https://www.google.com/maps/search/?api=1&query=${destLat},${destLng}`;
 
   return (
     <div className="mt-6">
-      <p className="text-sm font-semibold text-slate-700 mb-3">ตำแหน่งงานซ่อม{hasTech ? " และช่าง" : ""}</p>
-      <div className="rounded-xl overflow-hidden border border-slate-100">
-        <iframe title="job-location-map" src={embedUrl} className="w-full h-48 border-0" loading="lazy" />
-      </div>
+      <p className="text-sm font-semibold text-slate-700 mb-3">ตำแหน่งงานซ่อม{hasTech ? " และช่าง (เรียลไทม์)" : ""}</p>
+      <div ref={mapContainerRef} className="w-full h-56 rounded-xl overflow-hidden border border-slate-100" />
       <div className="flex items-center justify-between mt-2 gap-2">
         {hasTech ? (
-          <p className="text-xs text-slate-500">ช่างอยู่ห่างจากจุดหมาย ~{distanceKm.toFixed(1)} กม. (ระยะเส้นตรง)</p>
+          <p className="text-xs text-slate-500 flex items-center gap-1">
+            <Bike size={12} className="text-blue-500" />
+            {routeInfo
+              ? `ช่างอยู่ห่างจากจุดหมาย ${routeInfo.distanceKm.toFixed(1)} กม. • ประมาณ ${routeInfo.minutes} นาที`
+              : routeError
+              ? `ห่างจากจุดหมาย ~${straightLineKm.toFixed(1)} กม. (ระยะเส้นตรง)`
+              : "กำลังคำนวณเส้นทาง..."}
+          </p>
         ) : (
           <p className="text-xs text-slate-400">ยังไม่มีตำแหน่ง GPS ล่าสุดของช่าง</p>
         )}
@@ -232,7 +356,7 @@ function Row({ icon: Icon, label, value }) {
   );
 }
 
-export default function JobDetailModal({ job, technicians = [], onClose, onAssigned, dateFormat }) {
+export default function JobDetailModal({ job, technicians = [], onClose, onAssigned }) {
   const [selectedTech, setSelectedTech] = useState("");
   // 🔴 [ใหม่] วันนัด/เวลานัด — กรอกได้ต่อเมื่อเลือกช่างแล้วเท่านั้น (ตามลำดับ
   // ขั้นตอนที่ขอ: เลือกช่างก่อน ค่อยเลือกวันนัดทีหลัง) ค่า appointmentDate เป็น
@@ -253,7 +377,7 @@ export default function JobDetailModal({ job, technicians = [], onClose, onAssig
 
   const isCancelled = (job.status || "").includes("ยกเลิก");
   const isDone = job.status === "เสร็จสิ้น" || job.status === "เสร็จแล้ว";
-  const reportInfo = getRepairReport(job, dateFormat);
+  const reportInfo = getRepairReport(job);
   const ratingInfo = extractRating(job);
   // 🔴 แสดงกล่องมอบหมายช่างเฉพาะงานที่ยังไม่มีช่างและยังไม่จบ (เสร็จ/ยกเลิก) —
   // งานที่จบไปแล้วไม่ควรให้มอบหมายช่างใหม่ทับของเดิม
@@ -382,7 +506,7 @@ export default function JobDetailModal({ job, technicians = [], onClose, onAssig
             <Row icon={User} label="ลูกค้า" value={job.customer_username} />
             <Row icon={Wrench} label="อุปกรณ์ / เครื่องจักร" value={job.machine} />
             <Row icon={UserCog} label="ช่างที่รับผิดชอบ" value={job.technician_username || "ยังไม่มอบหมาย"} />
-            <Row icon={Calendar} label="วันนัดหมาย" value={displayStoredDate(job.date, dateFormat)} />
+            <Row icon={Calendar} label="วันนัดหมาย" value={displayStoredDate(job.date)} />
             {job.appointment_time ? <Row icon={Calendar} label="เวลานัดหมาย" value={`${job.appointment_time} น.`} /> : null}
             <Row icon={MapPin} label="สถานที่" value={job.location} />
             {job.detail ? <Row icon={AlertTriangle} label="รายละเอียดปัญหา" value={job.detail} /> : null}
@@ -413,19 +537,24 @@ export default function JobDetailModal({ job, technicians = [], onClose, onAssig
                 {/* 🔴 [ใหม่] ขั้นที่ 2: เลือกวันนัด+เวลา — โชว่ต่อเมื่อเลือกช่าง
                     แล้วเท่านั้น (ตามลำดับขั้นตอนที่ขอ: เลือกช่างก่อน ค่อยเลือก
                     วันนัดทีหลัง) วันที่เลือกได้ต่ำสุดคือวันนี้ ห้ามเลือก
-                    ย้อนหลัง (min={todayInputValue}) */}
+                    ย้อนหลัง (min={todayInputValue}) — ใช้ DateField (ปฏิทินที่
+                    วาดเอง ใน components/ui.jsx) แทน <input type="date"> ของ
+                    เบราว์เซอร์ เพื่อคุมหน้าตาการแสดงผลวันที่ให้เป็น พ.ศ. เสมอ
+                    ค่าที่เก็บ/ส่งออกยังเป็น ISO string "YYYY-MM-DD" เหมือนเดิม
+                    ทุกประการ ไม่กระทบโค้ดส่วนอื่น (formatThaiDate ด้านบนแปลง
+                    ต่อเหมือนเดิม) */}
                 {selectedTech ? (
                   <div className="mt-3">
                     <p className="text-xs font-medium text-slate-500 mb-1.5">นัดหมายวันที่และเวลา</p>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="date"
-                        value={appointmentDate}
-                        min={todayInputValue}
-                        onChange={(e) => setAppointmentDate(e.target.value)}
-                        disabled={assigning}
-                        className="flex-1 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      />
+                      <div className="flex-1">
+                        <DateField
+                          value={appointmentDate}
+                          min={todayInputValue}
+                          onChange={setAppointmentDate}
+                          disabled={assigning}
+                        />
+                      </div>
                       {/* 🔴 [แก้ไข] เวลาแบบไทย — ชั่วโมง 01-24 น. (24.00 = เที่ยงคืน
                           แทน 00.00 แบบสากล) นาที 00-59 แยกเป็น 2 dropdown คั่นด้วย
                           จุดแบบที่คนไทยเขียนเวลากัน (เช่น "14.30 น.") */}

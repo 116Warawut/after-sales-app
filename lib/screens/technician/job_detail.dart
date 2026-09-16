@@ -120,7 +120,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
       if (!mounted) return;
       setState(() {
         _job = CustomerJobInfo(
-          id: toIntOrNull(repair['id']),
+          id: resolveRecordId(repair),
           ticketId: toStringOrNull(repair['ticketNo']) ?? '-',
           machineCode: toIntOrNull(repair['machine_id'])?.toString() ??
               toStringOrNull(repair['machine_id']) ??

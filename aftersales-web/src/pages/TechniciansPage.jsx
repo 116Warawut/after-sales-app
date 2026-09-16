@@ -9,10 +9,10 @@ import {
   Phone,
   Briefcase,
   Truck,
-  Camera,
   X,
 } from "lucide-react";
-import { Card, EmptyState, PrimaryButton, Modal, ConfirmDialog, FormField, StarRating } from "../components/ui";
+import { Card, EmptyState, PrimaryButton, Modal, ConfirmDialog, StarRating } from "../components/ui";
+import PersonFormFields from "../components/PersonFormFields";
 import { COLORS, TECH_STATUS_BADGE, extractRating } from "../shared/constants";
 import useDbList from "../hooks/useDbList";
 import { addRow, updateRow, deleteRow, logActivity } from "../services/firebaseDb";
@@ -426,128 +426,43 @@ export default function TechniciansPage({ initialQuery }) {
             </div>
           }
         >
-          <div className="flex items-center gap-4 mb-5 pb-4 border-b border-slate-100">
-            <div className="relative">
-              {form.photo_url ? (
-                <img
-                  src={form.photo_url}
-                  alt="Profile Preview"
-                  className="w-16 h-16 rounded-full object-cover border-2 border-slate-200"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-xl font-semibold border-2 border-slate-200">
-                  {form.tech_name?.[0] || "?"}
-                </div>
-              )}
-              {uploadingImage && (
-                <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center text-white text-xs">
-                  อัปโหลด...
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors">
-                <Camera size={14} />
-                <span>{form.photo_url ? "เปลี่ยนรูปโปรไฟล์" : "อัปโหลดรูปโปรไฟล์"}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  disabled={uploadingImage}
-                  className="hidden"
-                />
-              </label>
-              <p className="text-[11px] text-slate-400 mt-1">ไฟล์รูปภาพ PNG, JPG ขนาดไม่เกิน 5MB</p>
-            </div>
-          </div>
-
-          <FormField
-            label="รหัสช่าง"
-            value={form.employee_id}
-            onChange={(v) => setForm((f) => ({ ...f, employee_id: v }))}
-            placeholder="เช่น T-001"
+          <PersonFormFields
+            photoUrl={form.photo_url}
+            initials={form.tech_name?.[0] || "?"}
+            uploadingImage={uploadingImage}
+            onImageChange={handleImageChange}
+            codeLabel="รหัสช่าง"
+            codePlaceholder="เช่น T-001"
+            code={form.employee_id}
+            onCodeChange={(v) => setForm((f) => ({ ...f, employee_id: v }))}
+            name={form.tech_name}
+            onNameChange={(v) => setForm((f) => ({ ...f, tech_name: v }))}
+            namePlaceholder="เช่น สมชาย ใจดี"
+            username={form.username}
+            onUsernameChange={(v) => setForm((f) => ({ ...f, username: v }))}
+            currentPassword={editing?.id ? editing.password || "" : undefined}
+            password={form.password}
+            onPasswordChange={(v) => setForm((f) => ({ ...f, password: v }))}
+            passwordLabel={editing?.id ? "รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)" : "รหัสผ่าน"}
+            passwordRequired={!editing?.id}
+            phone={form.phone}
+            onPhoneChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+            houseNo={form.house_no}
+            onHouseNoChange={(v) => setForm((f) => ({ ...f, house_no: v }))}
+            moo={form.moo}
+            onMooChange={(v) => setForm((f) => ({ ...f, moo: v }))}
+            postalCode={form.postal_code}
+            onPostalCodeChange={(v) => setForm((f) => ({ ...f, postal_code: v }))}
+            tambon={form.tambon}
+            amphoe={form.amphoe}
+            changwat={form.changwat}
+            onAddressChange={({ changwat, amphoe, tambon, postalCode }) =>
+              setForm((f) => ({ ...f, changwat, amphoe, tambon, postal_code: postalCode }))
+            }
+            showVehicle
+            vehicle={form.vehicle}
+            onVehicleChange={(v) => setForm((f) => ({ ...f, vehicle: v }))}
           />
-          <FormField
-            label="ชื่อช่าง"
-            value={form.tech_name}
-            onChange={(v) => setForm((f) => ({ ...f, tech_name: v }))}
-            placeholder="เช่น สมชาย ใจดี"
-            required
-          />
-          <FormField
-            label="ชื่อผู้ใช้ (username)"
-            value={form.username}
-            onChange={(v) => setForm((f) => ({ ...f, username: v }))}
-            placeholder="สำหรับล็อกอินในแอปมือถือ"
-            required
-          />
-          <FormField
-            label={editing?.id ? "รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)" : "รหัสผ่าน"}
-            type="password"
-            value={form.password}
-            onChange={(v) => setForm((f) => ({ ...f, password: v }))}
-            placeholder="••••••••"
-            required={!editing?.id}
-          />
-          <FormField
-            label="เบอร์โทร"
-            value={form.phone}
-            onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
-            placeholder="0X-XXX-XXXX"
-          />
-
-          <div className="pt-2 border-t border-slate-100">
-            <p className="text-sm font-semibold text-slate-700 mb-3 mt-3">ที่อยู่</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <FormField
-                label="บ้านเลขที่"
-                value={form.house_no}
-                onChange={(v) => setForm((f) => ({ ...f, house_no: v }))}
-                placeholder="123/45"
-              />
-              <FormField
-                label="หมู่"
-                value={form.moo}
-                onChange={(v) => setForm((f) => ({ ...f, moo: v }))}
-                placeholder="5"
-              />
-              <FormField
-                label="รหัสไปรษณีย์"
-                value={form.postal_code}
-                onChange={(v) => setForm((f) => ({ ...f, postal_code: v }))}
-                placeholder="10000"
-              />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-              <FormField
-                label="ตำบล / แขวง"
-                value={form.tambon}
-                onChange={(v) => setForm((f) => ({ ...f, tambon: v }))}
-                placeholder="เช่น บางจาก"
-              />
-              <FormField
-                label="อำเภอ / เขต"
-                value={form.amphoe}
-                onChange={(v) => setForm((f) => ({ ...f, amphoe: v }))}
-                placeholder="เช่น พระประแดง"
-              />
-              <FormField
-                label="จังหวัด"
-                value={form.changwat}
-                onChange={(v) => setForm((f) => ({ ...f, changwat: v }))}
-                placeholder="เช่น สมุทรปราการ"
-              />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <FormField
-              label="ยานพาหนะ"
-              value={form.vehicle}
-              onChange={(v) => setForm((f) => ({ ...f, vehicle: v }))}
-              placeholder="เช่น กระบะ ทะเบียน กข-1234"
-            />
-          </div>
         </Modal>
       )}
 

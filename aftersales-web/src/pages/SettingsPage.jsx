@@ -461,7 +461,6 @@ const DEFAULT_SETTINGS = {
   itemsPerPageParts: "20",
   itemsPerPageFinance: "20",
   itemsPerPageNotifications: "20",
-  dateFormat: "be",
   openTime: "08:00",
   closeTime: "17:00",
   weeklyOffDays: ["sun"],
@@ -491,7 +490,6 @@ const PERSONAL_SETTING_KEYS = [
   "itemsPerPageParts",
   "itemsPerPageFinance",
   "itemsPerPageNotifications",
-  "dateFormat",
   "currency",
   "theme",
   "notifyToastPopup",
@@ -698,12 +696,9 @@ export default function SettingsPage() {
         {SaveStatusIndicator}
       </div>
 
-      {/* คู่ซ้าย-ขวา จับคู่กันตามที่ขอ ไม่ให้เรียงยาวลงมาคอลัมน์เดียว — จัดให้
-          2 ฝั่งความสูงใกล้เคียงกัน (ฝั่งขวามีการ์ด "การแจ้งเตือน" ที่ยาวเป็น
-          พิเศษ เลยจับคู่กับ "ระบบทั่วไป" ที่สั้นสุดแทน ไม่ให้เกินฝั่งซ้ายไปมาก
-          จนเหลือช่องว่างโล่งๆ ก่อนถึง "แอดมินทั้งหมด" ด้านล่าง)
-          ซ้าย: จำนวนรายการต่อหน้า → ความปลอดภัย
-          ขวา: การแจ้งเตือน → ระบบทั่วไป */}
+      {/* คู่ซ้าย-ขวา จับคู่กันตามที่ขอ ไม่ให้เรียงยาวลงมาคอลัมน์เดียว —
+          ซ้าย: จำนวนรายการต่อหน้า → ความปลอดภัย → ระบบทั่วไป
+          ขวา: การแจ้งเตือน (ยาวสุด อยู่คนเดียวฝั่งขวา) */}
       <div className="flex flex-col lg:flex-row gap-5 items-start">
         <div className="flex-1 w-full space-y-5">
         {/* 🔴 [แก้ไข] ตามที่ขอ — เอาการ์ด "ข้อมูลบริษัท" ออกทั้งหมด (ชื่อบริษัท/
@@ -809,6 +804,24 @@ export default function SettingsPage() {
             <Toggle checked={settings.notifyNewLogin} onChange={(v) => updateSetting("notifyNewLogin", v)} />
           </div>
         </Card>
+        {/* ระบบทั่วไป */}
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Settings2 size={16} className="text-slate-400" />
+            <h2 className="text-sm font-semibold text-slate-800">ระบบทั่วไป</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <SelectField
+              label="ธีมสี"
+              value={settings.theme}
+              onChange={(v) => updateSetting("theme", v)}
+              options={[
+                { value: "light", label: "โหมดสว่าง" },
+                { value: "dark", label: "โหมดมืด" },
+              ]}
+            />
+          </div>
+        </Card>
         </div>
         <div className="flex-1 w-full space-y-5">
         {/* การแจ้งเตือน */}
@@ -905,33 +918,6 @@ export default function SettingsPage() {
                 <Toggle checked={settings.notifyDesktopPopup} onChange={(v) => updateSetting("notifyDesktopPopup", v)} />
               </div>
             </div>
-          </div>
-        </Card>
-        {/* ระบบทั่วไป */}
-        <Card>
-          <div className="flex items-center gap-2 mb-4">
-            <Settings2 size={16} className="text-slate-400" />
-            <h2 className="text-sm font-semibold text-slate-800">ระบบทั่วไป</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <SelectField
-              label="รูปแบบวันที่"
-              value={settings.dateFormat}
-              onChange={(v) => updateSetting("dateFormat", v)}
-              options={[
-                { value: "be", label: "พ.ศ. (31/12/2569)" },
-                { value: "ce", label: "ค.ศ. (31/12/2026)" },
-              ]}
-            />
-            <SelectField
-              label="ธีมสี"
-              value={settings.theme}
-              onChange={(v) => updateSetting("theme", v)}
-              options={[
-                { value: "light", label: "โหมดสว่าง" },
-                { value: "dark", label: "โหมดมืด" },
-              ]}
-            />
           </div>
         </Card>
 

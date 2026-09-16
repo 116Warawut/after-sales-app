@@ -98,7 +98,10 @@ class _ChatListPageState extends State<ChatListPage> {
 
       final rooms = <_ChatRoomPreview>[];
       for (final repair in repairs) {
-        final id = toIntOrNull(repair['id']);
+        // 🐛 [แก้บัค] เดิมใช้ toIntOrNull(repair['id']) เชื่อ field 'id' ข้างในตรง ๆ
+        // ซึ่งอาจไม่ตรงกับคีย์จริงใน Firebase ของ record นี้ ทำให้ดึงข้อความแชท
+        // ผิดห้อง (ห้องของ id เก่า/id ผี แทนที่จะเป็นห้องของงานนี้จริง ๆ)
+        final id = resolveRecordId(repair);
         if (id == null) continue;
 
         final last = await dbHelper.getLastChatMessage(id);

@@ -2,10 +2,15 @@
 // 🗺️ หน้าติดตามตำแหน่งงานซ่อม สำหรับแอดมิน (Admin Tracking)
 // ==========================================
 // ใช้ระบบแผนที่แบบเดียวกับฝั่งช่าง/ลูกค้า (RouteMapView + Geoapify) แทนการเปิด
-// Google Maps ภายนอก โดย "ไม่มีเงื่อนไข" ใดๆ กั้นการดูตำแหน่ง (แอดมินดูได้ทุกเมื่อ
-// ไม่ต้องรอถึงวันนัดซ่อมหรือถึงคิวงานเหมือนฝั่งลูกค้า) — ตำแหน่งช่างที่แสดงจะเป็น
-// พิกัดล่าสุดที่ฝั่งช่างอัปเดตไว้ใน DB เอง (จากหน้า "ตำแหน่งลูกค้า" ของช่าง) แอดมิน
-// เป็นเพียงผู้ดู ไม่ได้ขอ GPS จากเครื่องแอดมินเอง
+// Google Maps ภายนอก — ตำแหน่งช่างที่แสดงจะเป็นพิกัดล่าสุดที่ฝั่งช่างอัปเดตไว้ใน
+// DB เอง (จากหน้า "ตำแหน่งลูกค้า" ของช่าง) แอดมินเป็นเพียงผู้ดู ไม่ได้ขอ GPS
+// จากเครื่องแอดมินเอง
+// 🔴 [แก้ไข] เดิมหน้านี้ "ไม่มีเงื่อนไข" ใดๆ กั้นการดูตำแหน่งเลย (แอดมินดูได้
+// ทุกเมื่อ ต่างจากฝั่งช่าง/ลูกค้าที่ต้องถึงวันนัดซ่อมและถึงคิวงานก่อน) — ตอนนี้
+// ปรับให้แอดมินต้องผ่านเงื่อนไขเดียวกันกับฝั่งช่าง (customer_tracking.dart) และ
+// ฝั่งลูกค้า (technician_tracking.dart) ทุกประการ: (1) ต้องถึงวันนัดซ่อมแล้ว
+// เท่านั้น (2) ต้องถึงคิวงานนี้แล้วเท่านั้น (คิวที่ 1 ของวัน หรืองานเริ่มลงมือ
+// ซ่อม/เดินทางแล้ว)
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -60,7 +65,7 @@ class _AdminTrackingPageState extends State<AdminTrackingPage> {
     // หน้าจึงค้างที่ "กำลังโหลด" ตลอดไปโดยไม่มี error โผล่ให้เห็น (แผนที่เลย
     // ไม่มีทางถูกสร้างขึ้นมา เพราะ RouteMapView จะแสดงก็ต่อเมื่อ loading เป็น false)
     try {
-      // 1. ดึงข้อมูลใบแจ้งซ่อม — แอดมินดูได้ทุกเมื่อ ไม่มีเงื่อนไขเรื่องวันนัด/คิวงาน
+      // 1. ดึงข้อมูลใบแจ้งซ่อม — เงื่อนไขวันนัด/คิวงานเช็กต่อใน _loadFromRepair
       final repair =
           await db.DatabaseHelper.instance.getRepairById(widget.repairId);
       if (repair == null) {
@@ -82,10 +87,69 @@ class _AdminTrackingPageState extends State<AdminTrackingPage> {
     }
   }
 
+  /// 🗓️ เช็คว่าถึงวันนัดซ่อมแล้วหรือยัง (วันนี้ หรือเลยมาแล้ว)
+  /// เหมือนกับ _isTodayOrPast ใน customer_tracking.dart / technician_tracking.dart
+  /// เป๊ะทุกประการ (แกะรูปแบบวันที่ตัวเลขคั่น "/" เช่น "1/9/2569")
+  bool _isTodayOrPast(String? dateStr) {
+    if (dateStr == null || dateStr.trim().isEmpty) return false;
+    try {
+      final parts = dateStr.trim().split('/');
+      if (parts.length != 3) return false;
+
+      final day = int.parse(parts[0]);
+      final month = int.parse(parts[1]);
+      final buddhistYear = int.parse(parts[2]);
+      final year = buddhistYear - 543;
+
+      final appointmentDate = DateTime(year, month, day);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      return !appointmentDate.isAfter(today);
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> _loadFromRepair(Map<String, dynamic> repair) async {
     _ticketId = repair['ticketNo']?.toString() ??
         repair['ticket_no']?.toString() ??
         '#AS-${repair['id']}';
+
+    // เงื่อนไขที่ 1: ต้องถึงวันนัดซ่อมก่อนเท่านั้น แอดมินถึงจะเห็นตำแหน่งช่าง
+    // (เงื่อนไขเดียวกับฝั่งช่าง/ลูกค้า)
+    final appointmentDate = repair['date'] as String?;
+    if (!_isTodayOrPast(appointmentDate)) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage =
+            'จะเห็นตำแหน่งช่างได้ในวันนัดซ่อมเท่านั้น\n(วันนัดซ่อม: $appointmentDate)';
+        _loading = false;
+      });
+      return;
+    }
+
+    // เงื่อนไขที่ 2: ต้องถึงคิวงานนี้แล้วเท่านั้น (ใช้ระบบคิวจริงตาม approved_at
+    // เหมือนฝั่งช่าง/ลูกค้า — ถ้าช่างมีงานนัดวันเดียวกันหลายงาน แอดมินจะเห็น
+    // ตำแหน่งช่างสำหรับงานนี้ได้เฉพาะตอนที่งานนี้เป็นคิวที่ 1 หรือเริ่มลงมือแล้ว)
+    final status = repair['status'] as String?;
+    final repairIdForQueue = (repair['id'] as num?)?.toInt();
+    if (repairIdForQueue != null) {
+      final queueInfo =
+          await db.DatabaseHelper.instance.getQueueInfo(repairIdForQueue);
+      final isMyTurn = queueInfo.position == 1;
+      final isPhysicallyStarted =
+          status == 'กำลังซ่อม' || status == 'กำลังเดินทาง';
+      if (!isMyTurn && !isPhysicallyStarted) {
+        if (!mounted) return;
+        setState(() {
+          _errorMessage =
+              'ยังไม่ถึงคิวงานนี้\nขณะนี้อยู่คิวที่ ${queueInfo.position} จาก ${queueInfo.total} งานของวันนี้\n(ระบบจะแสดงตำแหน่งช่างเมื่อถึงคิวงาน)';
+          _loading = false;
+        });
+        return;
+      }
+    }
 
     // 2. ข้อมูลลูกค้า + พิกัดปลายทาง
     final customerUsername = repair['customer_username'] as String?;

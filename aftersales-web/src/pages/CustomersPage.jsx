@@ -12,7 +12,8 @@ import {
   Camera,
   X,
 } from "lucide-react";
-import { Card, EmptyState, PrimaryButton, Modal, ConfirmDialog, FormField } from "../components/ui";
+import { Card, EmptyState, PrimaryButton, Modal, ConfirmDialog, FormField, DateField } from "../components/ui";
+import PersonFormFields from "../components/PersonFormFields";
 import {
   COLORS,
   formatDateBySetting,
@@ -21,16 +22,16 @@ import {
   SERIAL_NUMBER_FORMAT_ERROR,
 } from "../shared/constants";
 import useDbList from "../hooks/useDbList";
-import useWebSettings from "../hooks/useWebSettings";
 import { addRow, updateRow, deleteRow, logActivity } from "../services/firebaseDb";
 import { getSessionAdmin } from "../services/session";
 import { uploadImage } from "../services/cloudinary";
 
 const EMPTY_FORM = {
+  employee_id: "",
   name: "",
-  surname: "",
   company: "",
   username: "",
+  password: "",
   phone: "",
   photo_url: "",
   house_no: "",
@@ -79,7 +80,7 @@ function formatAddress(c) {
   return parts.length > 0 ? parts.join(" ") : "-";
 }
 
-function warrantyStatus(m, dateFormat) {
+function warrantyStatus(m) {
   if (!m.warranty_start_date || !m.warranty_months) {
     return { label: "ไม่มีข้อมูลประกัน", color: "text-slate-400" };
   }
@@ -91,12 +92,12 @@ function warrantyStatus(m, dateFormat) {
   end.setMonth(end.getMonth() + Number(m.warranty_months));
   const daysLeft = Math.ceil((end.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   if (daysLeft < 0) {
-    return { label: `หมดประกันแล้ว (${formatDateBySetting(end, dateFormat)})`, color: "text-red-500" };
+    return { label: `หมดประกันแล้ว (${formatDateBySetting(end)})`, color: "text-red-500" };
   }
   if (daysLeft <= 30) {
     return { label: `ใกล้หมดประกัน (เหลือ ${daysLeft} วัน)`, color: "text-amber-500" };
   }
-  return { label: `อยู่ในประกัน (ถึง ${formatDateBySetting(end, dateFormat)})`, color: "text-emerald-500" };
+  return { label: `อยู่ในประกัน (ถึง ${formatDateBySetting(end)})`, color: "text-emerald-500" };
 }
 
 function CustomerCard({ customer, machineCount, jobCount, onEdit, onDelete, onViewMachines }) {
@@ -198,7 +199,7 @@ const WARRANTY_MONTH_OPTIONS = [
   { value: "36", label: "36 เดือน" },
 ];
 
-function MachineListModal({ customer, machines, dateFormat, onClose }) {
+function MachineListModal({ customer, machines, onClose }) {
   const list = machines.filter((m) => m.customer_username === customer.username);
 
   const [editingMachine, setEditingMachine] = useState(null);
@@ -338,7 +339,7 @@ function MachineListModal({ customer, machines, dateFormat, onClose }) {
           <div className="space-y-3">
             {list.map((m, i) => {
               const title = m.model_name || (m.label ? `เครื่องจักร ${m.label}` : `เครื่องจักร #${m.id ?? i + 1}`);
-              const ws = warrantyStatus(m, dateFormat);
+              const ws = warrantyStatus(m);
               const details = [
                 m.label ? `ป้ายชื่อย่อ: ${m.label}` : null,
                 m.serial_number ? `S/N: ${m.serial_number}` : null,
@@ -463,12 +464,16 @@ function MachineListModal({ customer, machines, dateFormat, onClose }) {
           <div className="pt-2 border-t border-slate-100">
             <p className="text-sm font-semibold text-slate-700 mb-3 mt-3">ข้อมูลประกัน</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField
-                label="วันที่เริ่มประกัน"
-                type="date"
-                value={form.warranty_start_date}
-                onChange={(v) => setForm((f) => ({ ...f, warranty_start_date: v }))}
-              />
+              {/* 🔴 [แก้ไข] ใช้ DateField (ปฏิทินที่วาดเอง) แทน <input type="date">
+                  ของเบราว์เซอร์ เพื่อคุมหน้าตาการแสดงผลวันที่ให้เป็น พ.ศ. เสมอ
+                  ค่าที่เก็บยังเป็น ISO string เหมือนเดิมทุกประการ */}
+              <div>
+                <label className="text-sm text-slate-600 mb-2 block font-medium">วันที่เริ่มประกัน</label>
+                <DateField
+                  value={form.warranty_start_date}
+                  onChange={(v) => setForm((f) => ({ ...f, warranty_start_date: v }))}
+                />
+              </div>
               <div>
                 <label className="text-sm text-slate-600 mb-2 block font-medium">ระยะเวลาประกัน</label>
                 <select
@@ -507,7 +512,6 @@ export default function CustomersPage({ initialQuery }) {
   const { data: customers, loading } = useDbList("customers");
   const { data: machines } = useDbList("machines");
   const { data: repairs } = useDbList("repairs");
-  const { settings: webSettings } = useWebSettings();
 
   useEffect(() => {
     if (initialQuery) setQuery(initialQuery);
@@ -541,10 +545,14 @@ export default function CustomersPage({ initialQuery }) {
 
   function openEdit(customer) {
     setForm({
-      name: customer.name || "",
-      surname: customer.surname || "",
+      employee_id: customer.employee_id || "",
+      // 🔴 [แก้ไข] เดิมแยกช่อง "ชื่อ" กับ "นามสกุล" — รวมเป็นช่องเดียว
+      // "ชื่อ-นามสกุล" ตามที่ขอ ตอนแก้ไขลูกค้าเก่าที่ยังมีข้อมูลแยกอยู่ ก็เอามา
+      // ต่อกันให้เป็นค่าเริ่มต้นในช่องเดียว
+      name: [customer.name, customer.surname].filter(Boolean).join(" "),
       company: customer.company || "",
       username: customer.username || "",
+      password: "",
       phone: customer.phone || "",
       photo_url: customer.photo_url || "",
       house_no: customer.house_no || "",
@@ -572,11 +580,21 @@ export default function CustomersPage({ initialQuery }) {
   }
 
   async function handleSave() {
+    // 🆕 [ใหม่] เพิ่มช่องรหัสผ่านให้ลูกค้าด้วยตามที่ขอ (เดิมมีแค่ username ไม่มี
+    // password) — บังคับกรอกตอนเพิ่มลูกค้าใหม่เหมือนกับฝั่งช่างทุกประการ
+    if (!editing?.id && !form.password.trim()) {
+      alert("กรุณากรอกรหัสผ่านสำหรับลูกค้าใหม่ ไม่งั้นจะล็อกอินในแอปมือถือไม่ได้");
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
+        employee_id: form.employee_id.trim(),
+        // 🔴 [แก้ไข] ช่อง "ชื่อ-นามสกุล" รวมเป็นช่องเดียวแล้ว — เก็บทั้งหมดลง
+        // "name" ตามที่กรอก ส่วน "surname" เคลียร์ทิ้ง (ของเก่าที่เคยแยกไว้จะถูก
+        // รวมมาแสดงในช่องเดียวนี้ตั้งแต่ openEdit แล้ว)
         name: form.name.trim(),
-        surname: form.surname.trim(),
+        surname: "",
         company: form.company.trim(),
         username: form.username.trim(),
         phone: form.phone.trim(),
@@ -588,10 +606,12 @@ export default function CustomersPage({ initialQuery }) {
         changwat: form.changwat.trim(),
         postal_code: form.postal_code.trim(),
       };
+      if (form.password.trim()) payload.password = form.password.trim();
+
       if (editing?.id) {
         await updateRow("customers", editing.id, payload);
       } else {
-        await addRow("customers", payload);
+        await addRow("customers", { ...payload, password: form.password.trim() });
       }
       setEditing(null);
     } catch (err) {
@@ -719,121 +739,43 @@ export default function CustomersPage({ initialQuery }) {
             </div>
           }
         >
-          <div className="flex items-center gap-4 mb-5 pb-4 border-b border-slate-100">
-            <div className="relative">
-              {form.photo_url ? (
-                <img
-                  src={form.photo_url}
-                  alt="Profile Preview"
-                  className="w-16 h-16 rounded-full object-cover border-2 border-slate-200"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-xl font-semibold border-2 border-slate-200">
-                  {form.name?.[0] || "?"}
-                </div>
-              )}
-              {uploadingImage && (
-                <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center text-white text-xs">
-                  อัปโหลด...
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors">
-                <Camera size={14} />
-                <span>{form.photo_url ? "เปลี่ยนรูปโปรไฟล์" : "อัปโหลดรูปโปรไฟล์"}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  disabled={uploadingImage}
-                  className="hidden"
-                />
-              </label>
-              <p className="text-[11px] text-slate-400 mt-1">ไฟล์รูปภาพ PNG, JPG ขนาดไม่เกิน 5MB</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField
-              label="ชื่อ"
-              value={form.name}
-              onChange={(v) => setForm((f) => ({ ...f, name: v }))}
-              placeholder="ชื่อจริง"
-              required
-            />
-            <FormField
-              label="นามสกุล"
-              value={form.surname}
-              onChange={(v) => setForm((f) => ({ ...f, surname: v }))}
-              placeholder="นามสกุล"
-            />
-          </div>
-          <FormField
-            label="บริษัท"
-            value={form.company}
-            onChange={(v) => setForm((f) => ({ ...f, company: v }))}
-            placeholder="ชื่อบริษัท (ถ้ามี)"
+          <PersonFormFields
+            photoUrl={form.photo_url}
+            initials={form.name?.[0] || "?"}
+            uploadingImage={uploadingImage}
+            onImageChange={handleImageChange}
+            codeLabel="รหัสลูกค้า"
+            codePlaceholder="เช่น C-001"
+            code={form.employee_id}
+            onCodeChange={(v) => setForm((f) => ({ ...f, employee_id: v }))}
+            name={form.name}
+            onNameChange={(v) => setForm((f) => ({ ...f, name: v }))}
+            namePlaceholder="เช่น สมชาย ใจดี"
+            username={form.username}
+            onUsernameChange={(v) => setForm((f) => ({ ...f, username: v }))}
+            currentPassword={editing?.id ? editing.password || "" : undefined}
+            password={form.password}
+            onPasswordChange={(v) => setForm((f) => ({ ...f, password: v }))}
+            passwordLabel={editing?.id ? "รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)" : "รหัสผ่าน"}
+            passwordRequired={!editing?.id}
+            phone={form.phone}
+            onPhoneChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+            showCompany
+            company={form.company}
+            onCompanyChange={(v) => setForm((f) => ({ ...f, company: v }))}
+            houseNo={form.house_no}
+            onHouseNoChange={(v) => setForm((f) => ({ ...f, house_no: v }))}
+            moo={form.moo}
+            onMooChange={(v) => setForm((f) => ({ ...f, moo: v }))}
+            postalCode={form.postal_code}
+            onPostalCodeChange={(v) => setForm((f) => ({ ...f, postal_code: v }))}
+            tambon={form.tambon}
+            amphoe={form.amphoe}
+            changwat={form.changwat}
+            onAddressChange={({ changwat, amphoe, tambon, postalCode }) =>
+              setForm((f) => ({ ...f, changwat, amphoe, tambon, postal_code: postalCode }))
+            }
           />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField
-              label="ชื่อผู้ใช้ (username)"
-              value={form.username}
-              onChange={(v) => setForm((f) => ({ ...f, username: v }))}
-              placeholder="สำหรับล็อกอินในแอปมือถือ"
-              required
-            />
-            <FormField
-              label="เบอร์โทร"
-              value={form.phone}
-              onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
-              placeholder="0X-XXX-XXXX"
-            />
-          </div>
-
-          <div className="pt-2 border-t border-slate-100">
-            <p className="text-sm font-semibold text-slate-700 mb-3 mt-3">ที่อยู่</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <FormField
-                label="บ้านเลขที่"
-                value={form.house_no}
-                onChange={(v) => setForm((f) => ({ ...f, house_no: v }))}
-                placeholder="123/45"
-              />
-              <FormField
-                label="หมู่"
-                value={form.moo}
-                onChange={(v) => setForm((f) => ({ ...f, moo: v }))}
-                placeholder="5"
-              />
-              <FormField
-                label="รหัสไปรษณีย์"
-                value={form.postal_code}
-                onChange={(v) => setForm((f) => ({ ...f, postal_code: v }))}
-                placeholder="10000"
-              />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-              <FormField
-                label="ตำบล / แขวง"
-                value={form.tambon}
-                onChange={(v) => setForm((f) => ({ ...f, tambon: v }))}
-                placeholder="เช่น บางจาก"
-              />
-              <FormField
-                label="อำเภอ / เขต"
-                value={form.amphoe}
-                onChange={(v) => setForm((f) => ({ ...f, amphoe: v }))}
-                placeholder="เช่น พระประแดง"
-              />
-              <FormField
-                label="จังหวัด"
-                value={form.changwat}
-                onChange={(v) => setForm((f) => ({ ...f, changwat: v }))}
-                placeholder="เช่น สมุทรปราการ"
-              />
-            </div>
-          </div>
         </Modal>
       )}
 
@@ -841,7 +783,6 @@ export default function CustomersPage({ initialQuery }) {
         <MachineListModal
           customer={viewingMachinesFor}
           machines={machines}
-          dateFormat={webSettings.dateFormat}
           onClose={() => setViewingMachinesFor(null)}
         />
       ) : null}

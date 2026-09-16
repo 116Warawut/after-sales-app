@@ -12,6 +12,7 @@ import 'package:after_sales/location_service.dart';
 import 'package:after_sales/screens/shared/route_map_view.dart';
 import 'package:after_sales/screens/technician/tac_id_card.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
@@ -160,7 +161,10 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
     // แทนการเช็คแค่ status — ถ้าช่างมีงานนัดวันเดียวกันหลายงาน จะเห็นตำแหน่งลูกค้า
     // ได้เฉพาะงานที่ถูกอนุมัติ/มอบหมายก่อนที่สุด (คิวที่ 1) ก่อนเท่านั้น)
     final status = repair['status'] as String?;
-    final repairId = (repair['id'] as num?)?.toInt();
+    // 🐛 [แก้บัค] เดิมอ่าน map['id'] ตรง ๆ อาจไม่ตรงกับคีย์จริงใน Firebase ของ
+    // record นี้ ทำให้เช็คคิวงาน (getQueueInfo) ผิดใบ — ใช้ resolveRecordId()
+    // ที่ยึดคีย์จริงเป็นหลักแทน
+    final repairId = resolveRecordId(repair);
     if (repairId != null) {
       final queueInfo = await db.DatabaseHelper.instance.getQueueInfo(repairId);
       final isMyTurn = queueInfo.position == 1;

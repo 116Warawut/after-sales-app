@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { History, UserPlus, Trash2, Check, X, FileText, Wallet, HelpCircle } from "lucide-react";
 import { Card, EmptyState, ConfirmDialog } from "../components/ui";
 import useDbList from "../hooks/useDbList";
-import useWebSettings from "../hooks/useWebSettings";
 import { clearActivityLog } from "../services/firebaseDb";
 
 // ---------------------------------------------------------------------------
@@ -30,18 +29,18 @@ const ACTION_META = {
   "มาร์กว่าชำระแล้ว": { icon: Wallet, color: "text-emerald-500 bg-emerald-50" },
 };
 
-function formatDateTime(iso, dateFormat) {
+function formatDateTime(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
+  // 🔴 [แก้ไข] ตัดตัวเลือกปี ค.ศ. ออกทั้งระบบตามที่ขอ — locale "th-TH" ให้ปี
+  // พ.ศ. เป็นค่าเริ่มต้นอยู่แล้ว
   const opts = { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" };
-  if (dateFormat === "ce") opts.calendar = "gregory";
   return d.toLocaleString("th-TH", opts);
 }
 
 export default function ActivityLogPage() {
   const { data: logs, loading } = useDbList("activity_log");
-  const { settings: webSettings } = useWebSettings();
   const [adminFilter, setAdminFilter] = useState("ทั้งหมด");
   // 🔴 [ชั่วคราว] state คู่กับปุ่มลบประวัติทั้งหมด — ลบพร้อมกับปุ่มด้านล่างทีหลัง
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -124,7 +123,7 @@ export default function ActivityLogPage() {
                     </p>
                     {log.target ? <p className="text-xs text-slate-400 mt-0.5 truncate">{log.target}</p> : null}
                   </div>
-                  <span className="text-xs text-slate-400 shrink-0 whitespace-nowrap">{formatDateTime(log.created_at, webSettings.dateFormat)}</span>
+                  <span className="text-xs text-slate-400 shrink-0 whitespace-nowrap">{formatDateTime(log.created_at)}</span>
                 </div>
               );
             })}
