@@ -14,7 +14,6 @@ import 'package:after_sales/screens/admin/admin_financial.dart';
 import 'package:after_sales/screens/admin/admin_spare_part.dart';
 import 'package:after_sales/screens/admin/manage_technician.dart';
 import 'package:after_sales/screens/admin/manage_customer.dart';
-// import 'package:after_sales/screens/admin/manage_admin.dart'; // หมายเหตุ: เชื่อมใหม่จากหน้า "ตั้งค่าระบบ" ทีหลัง
 import 'package:after_sales/screens/admin/profile_admin.dart';
 import 'package:after_sales/screens/shared/chat_list_page.dart';
 import 'package:after_sales/screens/shared/home_ui.dart';
@@ -34,9 +33,6 @@ abstract final class AppColors {
   static const redText = Color(0xFFB91C1C);
 }
 
-/// {@template home_admin}
-/// หน้าจอหลักสำหรับแอดมิน ([HomeAdmin])
-/// {@endtemplate}
 class HomeAdmin extends StatelessWidget {
   const HomeAdmin({super.key});
 
@@ -46,8 +42,6 @@ class HomeAdmin extends StatelessWidget {
   }
 }
 
-/// Shell กลางของฝั่ง Admin ใช้ CommonBottomNavBar ตัวเดียวกับ Customer/Technician
-/// สลับแท็บด้วย IndexedStack + Navigator แยกต่อแท็บ (คงประวัติการกดในแต่ละแท็บไว้)
 class AdminRootShell extends StatefulWidget {
   const AdminRootShell({super.key});
 
@@ -74,8 +68,6 @@ class _AdminRootShellState extends State<AdminRootShell> {
     _loadUnreadCount();
   }
 
-  /// 🔔 นับจำนวนแจ้งเตือนที่ยังไม่อ่าน — โชว์เป็นวงกลมแดงบนแท็บกระดิ่ง
-  /// และนับจำนวนห้องแชทที่มีข้อความยังไม่อ่าน — โชว์บนแท็บแชท
   Future<void> _loadUnreadCount() async {
     try {
       final count = await db.DatabaseHelper.instance
@@ -111,7 +103,6 @@ class _AdminRootShellState extends State<AdminRootShell> {
         body: IndexedStack(
           index: _navIndex,
           children: [
-            // 📌 แท็บ 0: หน้าแรก (สรุปสั้นๆ + ทางลัด)
             Navigator(
               key: _navigatorKeys[0],
               onGenerateRoute: (settings) => MaterialPageRoute(
@@ -121,8 +112,6 @@ class _AdminRootShellState extends State<AdminRootShell> {
                 ),
               ),
             ),
-
-            // 📌 แท็บ 1: งานทั้งหมด
             Navigator(
               key: _navigatorKeys[1],
               onGenerateRoute: (settings) => MaterialPageRoute(
@@ -131,21 +120,15 @@ class _AdminRootShellState extends State<AdminRootShell> {
                 ),
               ),
             ),
-
-            // 📌 แท็บ 2: รายการแชท (เลือกงานที่จะคุยได้)
             Navigator(
               key: _navigatorKeys[2],
               onGenerateRoute: (settings) => MaterialPageRoute(
                 builder: (_) => ChatListPage(
                   role: UserRole.admin,
-                  // 🔴 [แก้ไข] เดิมตัวเลขบนแท็บแชท/กระดิ่งค้างหลังอ่านแล้วออกจาก
-                  // ห้องแชท จนกว่าจะสลับแท็บเอง — ให้รีเฟรชทันทีที่กลับมาจากห้องแชท
                   onUnreadCountsChanged: _loadUnreadCount,
                 ),
               ),
             ),
-
-            // 📌 แท็บ 3: แจ้งเตือน
             Navigator(
               key: _navigatorKeys[3],
               onGenerateRoute: (settings) => MaterialPageRoute(
@@ -154,8 +137,6 @@ class _AdminRootShellState extends State<AdminRootShell> {
                 ),
               ),
             ),
-
-            // 📌 แท็บ 4: โปรไฟล์
             Navigator(
               key: _navigatorKeys[4],
               onGenerateRoute: (settings) => MaterialPageRoute(
@@ -171,7 +152,6 @@ class _AdminRootShellState extends State<AdminRootShell> {
           chatCount: _unreadChatRooms,
           onTap: (index) {
             setState(() => _navIndex = index);
-            // 🔄 อัปเดตตัวเลขแจ้งเตือนใหม่ทุกครั้งที่สลับแท็บ
             _loadUnreadCount();
           },
         ),
@@ -179,10 +159,6 @@ class _AdminRootShellState extends State<AdminRootShell> {
     );
   }
 }
-
-// ==========================================
-// SECTION: หน้าแรก (Home) — สรุปสั้นๆ + ทางลัด
-// ==========================================
 
 class AdminHomeContent extends StatefulWidget {
   final VoidCallback onViewAllJobs;
@@ -203,34 +179,16 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
   int _completed = 0;
   List<RepairListItem> _recentJobs = [];
 
-  /// จำนวนคำขอเบิกอะไหล่ที่ยังรอดำเนินการ — โชว์เป็นวงกลมแดงบนปุ่มลัด "จัดการอะไหล่"
-  /// และใช้เป็นตัวเลข "รออนุมัติ" ในบล็อก "ต้องดำเนินการ" ด้วย
   int _pendingPartRequests = 0;
-
-  // 🆕 ชื่อแอดมินสำหรับคำทักทาย
   String _adminName = 'Admin';
 
-  // 🆕 ภาพรวมงานซ่อม (4 กล่อง 2x2)
-  int _waitingCount = 0; // รอรับ = ยังไม่มอบหมายช่าง
-  int _inProgressCount = 0; // กำลังซ่อม
-  int _urgentCount = 0; // เร่งด่วน (เฉพาะงานที่ยังไม่เสร็จ/ไม่ถูกยกเลิก)
+  int _waitingCount = 0;
+  int _inProgressCount = 0;
+  int _urgentCount = 0;
+  int _overdueCount = 0;
+  int _issueCount = 0; // 🔴 ปลดจากค่าคงที่ เป็นตัวแปรที่รับค่าจากการนับจริง
 
-  // 🆕 บล็อก "ต้องดำเนินการ"
-  int _overdueCount =
-      0; // เกินกำหนด (วันนัดผ่านไปแล้วแต่ยังไม่เสร็จ) — มีข้อมูลจริง
-
-  // 🔴 [แก้ไข] 3 ตัวนี้ยังไม่มีข้อมูลรองรับจริงในระบบเลย — ใส่ 0 ไว้ก่อนตามที่คุยกัน
-  // (เหมือนกรณี "รอลูกค้า" ที่เคยแจ้งไว้ในหน้าแรกรอบก่อน) ต้องเพิ่มกลไกเหล่านี้เข้า
-  // ระบบจริงก่อนตัวเลขจะมีความหมาย:
-  //  - waitingTechUpdate: ต้องมีทางบอกว่า "งานนี้ช่างเงียบไปนานแล้ว" เช่น เก็บเวลา
-  //    ที่ช่างอัปเดตสถานะ/ส่งข้อความล่าสุด แล้วเทียบว่าห่างจากตอนนี้เกิน X ชม./วัน
-  //  - waitingCustomerReply: ต้องมีสถานะ "รอลูกค้า" จริงในระบบ (ตอนนี้มีแค่
-  //    รอจัดสรรช่าง/กำลังดำเนินการ/เสร็จแล้ว/ยกเลิก) ให้ช่างกดตั้งตอนรอการตัดสินใจ
-  //    จากลูกค้าระหว่างซ่อม
-  //  - issueCount: ต้องมีกลไกให้ช่าง/ลูกค้า "ปักธง" ว่างานนี้มีปัญหา/ต้องให้แอดมิน
-  //    เข้ามาดู เช่นปุ่มแจ้งปัญหาในหน้ารายละเอียดงาน
   final int _waitingTechUpdateCount = 0;
-  final int _issueCount = 0;
 
   @override
   void initState() {
@@ -238,8 +196,6 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
     _loadSummary();
   }
 
-  /// 🗓️ แปลงวันที่รูปแบบ 'd/M/พ.ศ.' (เช่น "19/8/2569") ที่เก็บไว้ตอนสร้างงาน
-  /// กลับเป็น DateTime จริง — ใช้เช็กว่างานไหน "เกินกำหนด" แล้วบ้าง
   DateTime? _parseThaiDate(String? dateStr) {
     if (dateStr == null || dateStr.trim().isEmpty) return null;
     final parts = dateStr.split('/');
@@ -256,10 +212,30 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
     setState(() => _loading = true);
     try {
       final dbHelper = db.DatabaseHelper.instance;
-      final repairs = await dbHelper.getAllRepairs();
-      final partRequests = await dbHelper.getAllPartRequests();
+      final allRawRepairs = await dbHelper.getAllRepairs();
+      final allRawPartRequests = await dbHelper.getAllPartRequests();
 
-      // 🆕 ดึงชื่อแอดมินที่ล็อกอินอยู่มาใช้ทักทาย
+      final repairs = db.Session.isMainAdmin
+          ? allRawRepairs
+          : allRawRepairs.where((r) {
+              final adminUser = r['admin_username']?.toString().trim();
+              return adminUser == null ||
+                  adminUser.isEmpty ||
+                  adminUser == db.Session.currentUsername;
+            }).toList();
+
+      final allowedRepairIds = repairs
+          .map((r) => (r['id'] ?? r['_fbKey'])?.toString())
+          .whereType<String>()
+          .toSet();
+
+      final partRequests = db.Session.isMainAdmin
+          ? allRawPartRequests
+          : allRawPartRequests.where((pr) {
+              final rId = pr['repair_id']?.toString();
+              return rId == null || rId.isEmpty || allowedRepairIds.contains(rId);
+            }).toList();
+
       final adminProfile =
           await dbHelper.getAdminProfile(db.Session.currentUsername);
       final adminName = (adminProfile?['admin_name']?.toString())?.trim();
@@ -269,32 +245,34 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
       int inProgress = 0;
       int urgent = 0;
       int overdue = 0;
+      int issue = 0; // 🔴 ตัวนับสถานะมีปัญหา
       final today = DateTime.now();
       final todayDateOnly = DateTime(today.year, today.month, today.day);
 
       for (final r in repairs) {
-        final status = RepairStatusX.fromString(r['status']?.toString());
+        final eff = db.getEffectiveRepairStatus(r);
         final rawStatus = (r['status']?.toString()) ?? '';
         final isCancelled = rawStatus.contains('ยกเลิก');
 
-        if (status == RepairStatus.done) {
+        if (eff == 'เสร็จสิ้น' || eff == 'เสร็จแล้ว') {
           completed++;
           continue;
         }
-        if (isCancelled) continue; // ยกเลิกแล้วไม่นับในสถิติงานที่ต้องทำต่อ
+        if (isCancelled) continue;
 
-        if (status == RepairStatus.waiting) waiting++;
-        if (status == RepairStatus.inProgress) inProgress++;
+        // 🔴 เช็คสถานะมีปัญหาจริงจากงานซ่อม
+        if (eff == 'มีปัญหา' || rawStatus.contains('ปัญหา')) {
+          issue++;
+        }
 
-        // 🔴 งานเร่งด่วน = ความเสียหายระดับ "เร่งด่วน" ที่ลูกค้าเลือกไว้ตอนแจ้งซ่อม
-        // (เก็บนำหน้าใน 'detail') หรือแอดมินตั้งค่าเองเป็นการเฉพาะ ('is_urgent' —
-        // ยังไม่มี UI ให้ตั้งค่านี้ตอนนี้ เตรียมฟิลด์ไว้รอต่อเหมือนฝั่งช่าง)
+        if (eff == 'รอจัดสรรช่าง') waiting++;
+        if (eff == 'กำลังซ่อม' || eff == 'กำลังเดินทาง' || eff == 'กำลังดำเนินการ') inProgress++;
+
         final detail = (r['detail']?.toString()) ?? '';
         final isSevere = detail.contains('[ความรุนแรง: เร่งด่วน]');
         final isAdminUrgent = r['is_urgent'] == true || r['is_urgent'] == 1;
         if (isSevere || isAdminUrgent) urgent++;
 
-        // ⏰ เกินกำหนด = วันนัดผ่านไปแล้ว แต่งานยังไม่เสร็จ/ไม่ถูกยกเลิก
         final jobDate = _parseThaiDate(r['date']?.toString());
         if (jobDate != null && jobDate.isBefore(todayDateOnly)) {
           overdue++;
@@ -318,11 +296,12 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
         _inProgressCount = inProgress;
         _urgentCount = urgent;
         _overdueCount = overdue;
+        _issueCount = issue; // 🔴 บันทึกตัวเลขมีปัญหาเข้า State
         _loading = false;
       });
     } catch (e) {
       debugPrint('Error loading admin home summary: $e');
-      if (!mounted) return; // ✅ เพิ่มการเช็ก mounted ป้องกัน Async Crash
+      if (!mounted) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('โหลดข้อมูลสรุปไม่สำเร็จ: $e')),
@@ -353,9 +332,6 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
     );
     _loadSummary();
   }
-
-  // 📌 "จัดการแอดมิน" (manage_admin.dart) ยังพร้อมใช้งานอยู่
-  // รอย้ายไปเชื่อมจากหน้า "ตั้งค่าระบบ" ในอนาคตแทนที่จะเป็นปุ่มหลักตรงนี้
 
   Future<void> _openFinancial() async {
     await Navigator.push(
@@ -389,22 +365,35 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
       isLoading: _loading,
       onRefresh: _loadSummary,
       children: [
-        // 👋 คำทักทาย — ใช้ชื่อแอดมินจริง เดิมใช้คำลอย ๆ "ผู้ดูแลระบบ"
         Align(
           alignment: Alignment.centerLeft,
-          child: Text(
-            'สวัสดี $_adminName 👋',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textMain,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'สวัสดี $_adminName 👋',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMain,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                db.Session.isMainAdmin
+                    ? 'แอดมินหลัก (ภาพรวมทั้งระบบ)'
+                    : 'แอดมินทั่วไป (งานในความรับผิดชอบ)',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF6B7280),
+                  fontFamily: 'Sarabun',
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
 
-        // 📊 ภาพรวมงานซ่อม — 4 กล่อง 2x2 แทนที่การ์ดแถบความคืบหน้าเดิม
-        // (TodaySummaryCard ยังใช้กับหน้าแรกลูกค้าอยู่ ไม่ได้แตะของเดิม)
         const HomeSectionHeader('ภาพรวมงานซ่อม'),
         const SizedBox(height: 12),
         StatsGrid2x2(
@@ -417,7 +406,7 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
               fg: AppColors.yellowText,
             ),
             StatBox(
-              label: 'กำลังดำเนินการ',
+              label: 'กำลังซ่อม',
               value: _inProgressCount,
               icon: Icons.build_outlined,
               bg: AppColors.blueBg,
@@ -441,7 +430,6 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
         ),
         const SizedBox(height: 24),
 
-        // ⚡ ทางลัด
         const HomeSectionHeader('ทางลัด'),
         const SizedBox(height: 12),
         HomeShortcutGrid(
@@ -476,19 +464,17 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
         ),
         const SizedBox(height: 24),
 
-        // 🚨 ต้องดำเนินการ — สรุปสิ่งที่แอดมินต้องรีบจัดการ ตรงนี้ลบละ
         const HomeSectionHeader('ต้องดำเนินการ'),
         const SizedBox(height: 12),
         _ActionNeededCard(
           unassignedCount: _waitingCount,
           waitingTechUpdateCount: _waitingTechUpdateCount,
-          issueCount: _issueCount,
+          issueCount: _issueCount, // 🔴 ส่งค่าตัวเลขมีปัญหาจริง
           overdueCount: _overdueCount,
           onViewAll: widget.onViewAllJobs,
         ),
         const SizedBox(height: 24),
 
-        // 📜 งานล่าสุด
         HomeSectionHeader('งานล่าสุด', onAction: widget.onViewAllJobs),
         const SizedBox(height: 12),
         if (_recentJobs.isEmpty)
@@ -513,7 +499,6 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
   }
 }
 
-/// 🚨 การ์ด "ต้องดำเนินการ" — สรุปรายการที่รอแอดมินจัดการอยู่ + ปุ่มดูทั้งหมด
 class _ActionNeededCard extends StatelessWidget {
   final int unassignedCount;
   final int waitingTechUpdateCount;
@@ -555,7 +540,7 @@ class _ActionNeededCard extends StatelessWidget {
           const SizedBox(height: 10),
           _ActionNeededRow(
             icon: Icons.report_gmailerrorred_outlined,
-            text: '$issueCount งาน — มีปัญหา/ต้องตรวจสอบ',
+            text: '$issueCount งาน — มีปัญหา', // 🔴 ปรับข้อความเป็น "มีปัญหา" ให้ตรงกับเว็บ
             color: AppColors.redText,
           ),
           const SizedBox(height: 10),

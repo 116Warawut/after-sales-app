@@ -9,6 +9,7 @@ const DEFAULTS = {
   itemsPerPageDashboard: "10",
   itemsPerPageJobs: "20",
   itemsPerPageParts: "20",
+  itemsPerPagePartRequests: "20",
   itemsPerPageFinance: "20",
   itemsPerPageNotifications: "20",
   theme: "light",

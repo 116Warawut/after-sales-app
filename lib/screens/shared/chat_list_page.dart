@@ -1,12 +1,5 @@
 // =============================================================================
 // 💬 หน้ารายการแชท (Chat List)
-// ใช้แทนแท็บ "แชท" เดิมที่เคยเปิด ChatScreen ตรง ๆ โดยไม่มี repairId
-// (ซึ่งพอ ChatScreen ถูกปรับให้เป็นห้องแชทต่อ 1 ใบแจ้งซ่อมแล้ว เปิดแบบไม่มี
-// repairId จะเจอแค่หน้า "ไม่พบรายการสนทนา" ตันอยู่แค่นั้น)
-//
-// หน้านี้ดึงใบแจ้งซ่อมที่เกี่ยวข้องกับผู้ใช้ปัจจุบันตามบทบาท มาเรียงเป็นรายการ
-// ห้องแชท พร้อมพรีวิวข้อความล่าสุดและตัวเลขที่ยังไม่อ่าน กดแล้วค่อยเข้า
-// ChatScreen(repairId: ...) ห้องจริงต่อไป
 // =============================================================================
 import 'package:flutter/material.dart';
 
@@ -19,12 +12,6 @@ import 'package:after_sales/widgets.dart';
 
 class ChatListPage extends StatefulWidget {
   final UserRole role;
-
-  /// 🔔 เรียกทุกครั้งที่กลับมาจากห้องแชท (ซึ่งอาจมีข้อความถูกมาร์กว่าอ่านแล้ว)
-  /// เพื่อให้ Shell ด้านนอกรีเฟรชตัวเลขบน BottomNavigationBar ทันที — เดิมตัวเลข
-  /// บนแท็บแชท/กระดิ่งจะค้าง ไม่ลดลงจนกว่าผู้ใช้จะสลับแท็บเองอีกครั้ง เพราะ
-  /// Shell รีเฟรชค่าพวกนี้เฉพาะตอน onTap ของแถบด้านล่างเท่านั้น ไม่รู้เรื่องการ
-  /// push/pop ที่เกิดขึ้นภายใน Navigator ซ้อนของแท็บนี้เลย
   final VoidCallback? onUnreadCountsChanged;
 
   const ChatListPage({super.key, required this.role, this.onUnreadCountsChanged});
@@ -34,9 +21,10 @@ class ChatListPage extends StatefulWidget {
 }
 
 class _ChatRoomPreview {
-  final int repairId;
+  // 🍎 รองรับทั้ง int (เช่น 18) และ String Push Key (เช่น "-Oxxxx..." หรือ "k18") จากฝั่งเว็บ
+  final dynamic repairId;
   final String ticketId;
-  final String subtitle; // ชื่อลูกค้า (แอดมิน/ช่าง) หรือรุ่นเครื่อง (ลูกค้า)
+  final String subtitle;
   final String status;
   final String? lastMessage;
   final bool lastMessageIsImage;
@@ -69,7 +57,6 @@ class _ChatListPageState extends State<ChatListPage> {
   }
 
   Future<void> _loadRooms() async {
-    // ปิดรายการที่สไลด์ค้างไว้ก่อนโหลดใหม่ ไม่ให้ค้างคาตอนลิสต์เปลี่ยน
     SwipeToRevealDelete.closeOpened();
     setState(() => _loading = true);
     try {
@@ -85,45 +72,52 @@ class _ChatListPageState extends State<ChatListPage> {
           repairs = await dbHelper.getRepairsByTechnician(username);
           break;
         case UserRole.admin:
-          // 🔴 [แก้ไข] เจอบั๊ก: เดิมดึงงานซ่อม "ทั้งหมดในระบบ" มาโชว์เป็นห้องแชท
-          // ให้แอดมินทุกคนเห็นเหมือนกันหมด ทำให้แอดมินที่ไม่ได้เป็นคนมอบหมายช่าง
-          // ให้งานนี้ (ไม่ใช่เจ้าของงาน) เปิดเข้าไปดู/พิมพ์แชทของงานคนอื่นได้ตามใจ
-          // เลย — ทั้งที่ต้องการให้ "1 ห้องแชท มีแอดมินรับผิดชอบได้แค่ 1 คน"
-          // กรองให้เหลือเฉพาะงานที่ admin_username ตรงกับแอดมินที่ล็อกอินอยู่เท่านั้น
-          repairs = (await dbHelper.getAllRepairs())
-              .where((r) => r['admin_username']?.toString() == username)
-              .toList();
+          // 🔒 แอดมินหลักเห็นทั้งหมด / แอดมินทั่วไปเห็นงานของตนเอง + งานที่ยังไม่มีผู้รับผิดชอบ
+          final allRepairs = await dbHelper.getAllRepairs();
+          if (db.Session.isMainAdmin) {
+            repairs = allRepairs;
+          } else {
+            repairs = allRepairs.where((r) {
+              final adminUser = r['admin_username']?.toString().trim();
+              return adminUser == null ||
+                  adminUser.isEmpty ||
+                  adminUser == username;
+            }).toList();
+          }
           break;
       }
 
       final rooms = <_ChatRoomPreview>[];
       for (final repair in repairs) {
-        // 🐛 [แก้บัค] เดิมใช้ toIntOrNull(repair['id']) เชื่อ field 'id' ข้างในตรง ๆ
-        // ซึ่งอาจไม่ตรงกับคีย์จริงใน Firebase ของ record นี้ ทำให้ดึงข้อความแชท
-        // ผิดห้อง (ห้องของ id เก่า/id ผี แทนที่จะเป็นห้องของงานนี้จริง ๆ)
-        final id = resolveRecordId(repair);
-        if (id == null) continue;
+        // 🍎 ดึง ID ที่ยืดหยุ่น: อ่านได้ทั้งคีย์ Firebase และฟิลด์ ID ในเอกสาร
+        final rawId = resolveRecordId(repair) ?? repair['id'] ?? repair['_fbKey'];
+        if (rawId == null) continue;
 
-        final last = await dbHelper.getLastChatMessage(id);
+        // ดึงข้อความล่าสุด (ลองทั้ง ID ดิบ และ ID ตัด prefix 'k')
+        Map<String, dynamic>? last = await dbHelper.getLastChatMessage(rawId);
+        final rawIdStr = rawId.toString().trim();
+        final cleanIdStr = rawIdStr.replaceFirst(RegExp(r'^[kK]'), '');
 
-        // 🔴 [แก้ไข] เดิมข้ามงานที่ยังไม่มีข้อความเลยทุกกรณี ทำให้พองานเพิ่งถูก
-        // แอดมินมอบหมายช่างเสร็จ (อนุมัติงาน) ห้องแชทจะยังไม่โผล่ที่แท็บแชทด้านล่าง
-        // จนกว่าจะมีใครส่งข้อความก่อน 1 ครั้ง — ต้องไปเปิดจากหน้ารายละเอียดงานเท่านั้น
-        // ใช้งานลำบาก ตอนนี้เปลี่ยนเงื่อนไขเป็น "โชว์ถ้ามีข้อความ หรือ งานนี้ยังทำงาน
-        // อยู่จริง (มีช่างรับผิดชอบแล้ว และยังไม่เสร็จ/ไม่ถูกยกเลิก)" แทน — ห้องของงาน
-        // ที่เสร็จ/ยกเลิกไปแล้ว พอถูกลบข้อความ (สไลด์ลบ) จะยังหายไปจริงเหมือนเดิม
-        // เพราะไม่เข้าเงื่อนไข "ยังทำงานอยู่" อีกต่อไป
-        // 🔴 [แก้ไข] เดิมเงื่อนไข isActiveJob บังคับว่าต้อง "มีช่างรับผิดชอบแล้ว"
-        // ห้องแชทถึงจะโผล่ในแท็บแชท — แต่ลูกค้าสามารถกดคุยกับแอดมินได้ตั้งแต่
-        // แจ้งซ่อมเสร็จ (ผ่านปุ่มในหน้ารายละเอียดงาน) ทำให้งานที่ยัง "รอจัดสรรช่าง"
-        // มีห้องแชทใช้งานได้จริงแต่หาไม่เจอในแท็บแชท ต้องเข้าทางหน้ารายละเอียด
-        // อย่างเดียว ตอนนี้ยึดแค่ "งานยังไม่ปิด" เป็นเกณฑ์พอ
+        if (last == null && cleanIdStr != rawIdStr) {
+          last = await dbHelper.getLastChatMessage(cleanIdStr);
+        }
+        if (last == null) {
+          final asInt = int.tryParse(cleanIdStr);
+          if (asInt != null) {
+            last = await dbHelper.getLastChatMessage(asInt);
+          }
+        }
+
         final status = repair['status']?.toString() ?? '';
         final isActiveJob =
             !status.contains('เสร็จ') && !status.contains('ยกเลิก');
         if (last == null && !isActiveJob) continue;
 
-        final unread = await dbHelper.getUnreadChatCount(id, username);
+        // ดึงจำนวนที่ยังไม่อ่าน
+        int unread = await dbHelper.getUnreadChatCount(rawId, username);
+        if (unread == 0 && cleanIdStr != rawIdStr) {
+          unread = await dbHelper.getUnreadChatCount(cleanIdStr, username);
+        }
 
         String subtitle;
         switch (widget.role) {
@@ -139,16 +133,9 @@ class _ChatListPageState extends State<ChatListPage> {
             break;
         }
 
-        // 🍎 repairId ของ _ChatRoomPreview เป็น int (non-null) แต่ resolveRecordId()
-        // คืนค่า dynamic — ถ้าคีย์ใน Firebase ไม่ใช่รูปแบบตัวเลข (เช่น push id)
-        // การใส่ตรง ๆ จะ throw TypeError กลาง loop แล้วตกไปเข้า catch ทำให้
-        // "ทั้งหน้า" ไม่มีห้องแชทขึ้นเลยสักห้อง — ข้ามเฉพาะใบที่แปลงไม่ได้แทน
-        final intId = toIntOrNull(id);
-        if (intId == null) continue;
-
         rooms.add(_ChatRoomPreview(
-          repairId: intId,
-          ticketId: repair['ticketNo']?.toString() ?? '#AS-$intId',
+          repairId: rawId,
+          ticketId: repair['ticketNo']?.toString() ?? '#AS-$cleanIdStr',
           subtitle: subtitle,
           status: status.isEmpty ? '-' : status,
           lastMessage: last?['message']?.toString(),
@@ -160,10 +147,10 @@ class _ChatListPageState extends State<ChatListPage> {
         ));
       }
 
-      // 🔃 เรียงห้องที่มีข้อความล่าสุดขึ้นก่อน (คุยล่าสุดอยู่บนสุดเหมือนแชทแอปทั่วไป)
+      // 🔃 เรียงห้องที่มีข้อความล่าสุดขึ้นก่อน
       rooms.sort((a, b) {
         if (a.lastMessageAt == null && b.lastMessageAt == null) {
-          return b.repairId.compareTo(a.repairId);
+          return b.repairId.toString().compareTo(a.repairId.toString());
         }
         if (a.lastMessageAt == null) return 1;
         if (b.lastMessageAt == null) return -1;
@@ -201,14 +188,10 @@ class _ChatListPageState extends State<ChatListPage> {
         ),
       ),
     );
-    // 🔄 กลับมาแล้วรีเฟรช เผื่อมีข้อความใหม่หรือเพิ่งอ่านไป ตัวเลขจะได้อัปเดต
     _loadRooms();
-    // 🔴 [แก้ไข] แจ้ง Shell ให้รีเฟรชตัวเลขบน BottomNavigationBar ด้วย — ไม่งั้น
-    // ตัวเลขจะค้างจนกว่าจะสลับแท็บเอง (ดูรายละเอียดที่คอมเมนต์ของ onUnreadCountsChanged)
     widget.onUnreadCountsChanged?.call();
   }
 
-  // 🗑️ ลบห้องแชท — ลบข้อความทั้งหมดของงานนี้ทิ้งจริง (เหมือนการลบแจ้งเตือน ไม่มี pop up ถาม)
   Future<void> _deleteRoom(_ChatRoomPreview room) async {
     final backup = List<_ChatRoomPreview>.from(_rooms);
     setState(() => _rooms.removeWhere((r) => r.repairId == room.repairId));
@@ -268,7 +251,6 @@ class _ChatListPageState extends State<ChatListPage> {
                   : rooms.isEmpty
                       ? const _EmptyChatList()
                       : Listener(
-                          // 👆 แตะที่ไหนก็ได้ในพื้นที่ว่าง (นอกการ์ด) ให้ปิดใบที่เลื่อนค้างไว้
                           onPointerDown: (_) =>
                               SwipeToRevealDelete.closeOpened(),
                           behavior: HitTestBehavior.translucent,
@@ -286,8 +268,6 @@ class _ChatListPageState extends State<ChatListPage> {
                                 return SwipeToRevealDelete(
                                   key: ValueKey(room.repairId),
                                   onDelete: () => _deleteRoom(room),
-                                  // ปัดมุมแค่ฝั่งขวาสุดของกล่องไอคอน (ฝั่งซ้ายที่ชน
-                                  // กับการ์ดปล่อยเหลี่ยมไว้ ให้แนบชิดกันตรงรอยต่อ)
                                   borderRadius: const BorderRadius.only(
                                     topRight: Radius.circular(14),
                                     bottomRight: Radius.circular(14),
@@ -344,14 +324,12 @@ class _EmptyChatList extends StatelessWidget {
   }
 }
 
-/// แถวห้องแชท 1 ห้อง — เลขงาน/ชื่อคู่สนทนา + ข้อความล่าสุด + เวลา + ตัวเลขไม่อ่าน
 class _ChatRoomTile extends StatelessWidget {
   final _ChatRoomPreview room;
   final VoidCallback onTap;
 
   const _ChatRoomTile({required this.room, required this.onTap});
 
-  /// เวลาแบบย่อ (ใช้เฉพาะในรายการแชท ต่างจากแบบเต็มที่ใช้ในหน้าแจ้งเตือน)
   String _shortTime(String? iso) {
     if (iso == null) return '';
     final dt = DateTime.tryParse(iso);

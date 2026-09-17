@@ -477,8 +477,16 @@ class _RepairHistoryTile extends StatelessWidget {
     if (raw.contains('เสร็จ')) {
       return const _StatusStyle('เสร็จสิ้น', AppColors.greenText);
     }
+    if (raw.contains('มีปัญหา')) {
+      return const _StatusStyle('มีปัญหา', AppColors.redText);
+    }
+    // 🆕 [ใหม่] แยก "กำลังเดินทาง" ออกจาก "กำลังซ่อม" ให้ตรงกับสถานะจริง — เดิม
+    // ไม่มีเคสนี้เลย ตกไปเป็น "รอจัดสรรช่าง" (default) ผิด ๆ
+    if (raw.contains('กำลังเดินทาง')) {
+      return const _StatusStyle('กำลังเดินทาง', Color(0xFF1D4ED8));
+    }
     if (raw.contains('กำลังดำเนินการ') || raw.contains('กำลังซ่อม')) {
-      return const _StatusStyle('กำลังดำเนินการ', AppColors.blueText);
+      return const _StatusStyle('กำลังซ่อม', AppColors.blueText);
     }
     return const _StatusStyle('รอจัดสรรช่าง', AppColors.yellowText);
   }

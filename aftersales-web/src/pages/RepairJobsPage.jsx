@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Wrench, Trash2, Search, UserCog, Loader2, X, UserCheck } from "lucide-react";
 import { Card, EmptyState, ConfirmDialog, Pagination, DateField, TimeField } from "../components/ui";
 import {
@@ -30,9 +30,6 @@ function isAssignable(j) {
   return !j.technician_username && !isCancelled && !isDoneStatus(effective);
 }
 
-// 🆕 [ใหม่] ตัวช่วยแปลงวันที่ ISO ("YYYY-MM-DD" จาก DateField) <-> รูปแบบไทยที่
-// เก็บจริงในฟิลด์ "date" ("D/M/ปีพ.ศ." เช่น "16/9/2569") — ใช้คู่กับปฏิทินเลือก
-// วันนัดตอนมอบหมายงานหลายรายการพร้อมกัน (เหมือนที่ JobDetailModal.jsx ใช้)
 function toDateInputValue(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -47,13 +44,6 @@ function isoToThaiDate(iso) {
   return `${d}/${m}/${y + 543}`;
 }
 
-// นับจำนวนงานของแต่ละแท็บสถานะ ไว้โชว์ตัวเลขชิดขวาบนปุ่มแท็บ — ถ้างานหนึ่ง
-// เข้าเงื่อนไขได้หลายหัวข้อพร้อมกัน (เช่น เร่งด่วนแต่ก็เสร็จสิ้นไปแล้วด้วย) ให้
-// นับที่หัวข้อสำคัญที่สุดหัวข้อเดียวตามลำดับนี้ (สูง→ต่ำ): เสร็จสิ้น > มีปัญหา >
-// เกินกำหนดเวลา > เร่งด่วน > รอจัดสรรช่าง > รอดำเนินการ > กำลังซ่อม (แนวทาง
-// เดียวกับที่การ์ดสถิติในหน้า Dashboard ใช้ กันไม่ให้งานเดียวโผล่นับซ้ำ 2 ที่)
-// หมายเหตุ: ตัวเลขนี้มีไว้ "โชว์" เท่านั้น ไม่ได้เปลี่ยนพฤติกรรมการกรอง byTab
-// เวลากดแท็บจริง (ของเดิมยังทำงานเหมือนเดิมทุกอย่าง)
 function computeTabCounts(jobs) {
   const counts = {
     "รอจัดสรรช่าง": 0,
@@ -73,7 +63,7 @@ function computeTabCounts(jobs) {
     else if (isUrgent) counts["เร่งด่วน"]++;
     else if (eff === "รอจัดสรรช่าง") counts["รอจัดสรรช่าง"]++;
     else if (eff === "รอดำเนินการ") counts["รอดำเนินการ"]++;
-    else if (eff === "กำลังซ่อม") counts["กำลังซ่อม"]++;
+    else if (eff === "กำลังซ่อม" || eff === "กำลังเดินทาง") counts["กำลังซ่อม"]++;
   });
   counts["ทั้งหมด"] = jobs.length;
   return counts;
@@ -88,11 +78,6 @@ function BulkAssignModal({ count, technicians, onAssign, onClose }) {
 
   const todayIso = toDateInputValue(new Date());
 
-  // 🔴 [แก้ไข] เดิมเลือกได้แค่ช่างอย่างเดียว (วันนัด/เวลานัดหายไปตอนแก้เรื่อง
-  // แผนที่ในหน้ารายละเอียดงาน — ที่นี่ก็ไม่เคยมีมาก่อนเหมือนกัน) เพิ่มให้ครบ
-  // ตามที่ขอ: เลือกช่างก่อน -> ปฏิทินเลือกวันโผล่มา (เลือกได้แค่วันนี้เป็นต้นไป)
-  // -> เลือกเวลาโผล่ตามมา -> ปุ่มยืนยันค่อยโผล่ วันที่/เวลาที่เลือกจะใช้ร่วมกัน
-  // ทุกงานที่เลือกไว้
   async function handleConfirm() {
     if (!selectedTech || !dateIso || !time) {
       setError("กรุณาเลือกช่าง วันนัด และเวลานัดให้ครบ");
@@ -239,20 +224,19 @@ function ReassignAdminModal({ job, admins, onClose }) {
   );
 }
 
-export default function RepairJobsPage({ initialTab, initialQuery }) {
+export default function RepairJobsPage({ initialTab, initialQuery, onNavigate }) {
   const [tab, setTab] = useState(initialTab || "ทั้งหมด");
   const [query, setQuery] = useState(initialQuery || "");
-  const { data: jobs, loading } = useDbList("repairs");
-  const { data: technicians } = useDbList("technicians");
-  const { data: admins } = useDbList("admins");
+  const { data: jobs = [], loading } = useDbList("repairs");
+  const { data: technicians = [] } = useDbList("technicians");
+  const { data: admins = [] } = useDbList("admins");
   const [selectedJob, setSelectedJob] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkAssign, setShowBulkAssign] = useState(false);
   const [reassignTarget, setReassignTarget] = useState(null);
-  // 🆕 จำนวนรายการต่อหน้า อ่านมาจากหน้าตั้งค่า > ระบบทั่วไป (เฉพาะของหน้า
-  // "งานซ่อม" — แยกจากจำนวนรายการของหน้า Dashboard/อะไหล่/การเงิน/แจ้งเตือน)
+
   const { settings: webSettings } = useWebSettings();
   const pageSize = Number(webSettings.itemsPerPageJobs) || 20;
   const [page, setPage] = useState(1);
@@ -261,10 +245,22 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
   const isSuperAdmin = isMainAdmin(currentAdmin);
   const autoOpenedRef = useRef(null);
 
+  // 🔒 กรองสิทธิ์งานซ่อม: แอดมินหลักเห็นทั้งหมด / แอดมินทั่วไปเห็นเฉพาะงานของตนเอง + งานที่ยังไม่มีคนรับผิดชอบ
+  const visibleJobs = useMemo(() => {
+    if (!jobs || !Array.isArray(jobs)) return [];
+    if (isSuperAdmin) return jobs;
+    return jobs.filter(
+      (j) =>
+        j.admin_username === currentAdmin?.username ||
+        !j.admin_username ||
+        j.admin_username === ""
+    );
+  }, [jobs, isSuperAdmin, currentAdmin?.username]);
+
   useEffect(() => {
     if (!initialQuery || autoOpenedRef.current === initialQuery) return;
-    if (jobs.length === 0) return;
-    const match = jobs.find(
+    if (visibleJobs.length === 0) return;
+    const match = visibleJobs.find(
       (j) => String(j.id) === String(initialQuery) || String(j.record_id) === String(initialQuery)
     );
     autoOpenedRef.current = initialQuery;
@@ -273,36 +269,43 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
     } else {
       setQuery(initialQuery);
     }
-  }, [initialQuery, jobs]);
+  }, [initialQuery, visibleJobs]);
 
-  const sorted = [...jobs].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-  const tabCounts = computeTabCounts(jobs);
+  const sorted = useMemo(() => {
+    return [...visibleJobs].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  }, [visibleJobs]);
 
-  const byTab =
-    tab === "ทั้งหมด"
-      ? sorted
-      : tab === "เร่งด่วน"
-      ? sorted.filter((j) => extractSeverity(j.detail) === "เร่งด่วน")
-      : tab === "เสร็จสิ้น"
-      ? sorted.filter((j) => isDoneStatus(getEffectiveRepairStatus(j)))
-      : sorted.filter((j) => getEffectiveRepairStatus(j) === tab);
+  const tabCounts = useMemo(() => computeTabCounts(visibleJobs), [visibleJobs]);
 
-  const filtered = byTab.filter((j) => {
+  const byTab = useMemo(() => {
+    if (tab === "ทั้งหมด") return sorted;
+    if (tab === "เร่งด่วน") return sorted.filter((j) => extractSeverity(j.detail) === "เร่งด่วน");
+    if (tab === "เสร็จสิ้น") return sorted.filter((j) => isDoneStatus(getEffectiveRepairStatus(j)));
+    if (tab === "กำลังซ่อม") {
+      return sorted.filter((j) =>
+        ["กำลังซ่อม", "กำลังเดินทาง"].includes(getEffectiveRepairStatus(j))
+      );
+    }
+    return sorted.filter((j) => getEffectiveRepairStatus(j) === tab);
+  }, [sorted, tab]);
+
+  const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      String(j.ticketNo || "").toLowerCase().includes(q) ||
-      String(j.id ?? "").toLowerCase().includes(q) ||
-      (j.customer_username || "").toLowerCase().includes(q) ||
-      (j.machine || "").toLowerCase().includes(q)
-    );
-  });
+    if (!q) return byTab;
+    return byTab.filter((j) => {
+      return (
+        String(j.ticketNo || "").toLowerCase().includes(q) ||
+        String(j.id ?? "").toLowerCase().includes(q) ||
+        (j.customer_username || "").toLowerCase().includes(q) ||
+        (j.machine || "").toLowerCase().includes(q)
+      );
+    });
+  }, [byTab, query]);
 
-  // 🆕 แบ่งหน้ารายการงานซ่อมตามจำนวนรายการต่อหน้าที่ตั้งไว้ — สลับแท็บหรือ
-  // ค้นหาใหม่ต้องกลับไปหน้า 1 เสมอ กันเผลอค้างอยู่หน้าท้ายๆ ที่ไม่มีข้อมูลแล้ว
   useEffect(() => {
     setPage(1);
   }, [tab, query]);
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -327,8 +330,6 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
     }
   }
 
-  // 🆕 "เลือกทั้งหมด" ตอนนี้อิงจากรายการที่เห็นอยู่ในหน้าปัจจุบันเท่านั้น
-  // (หลังจากมีการแบ่งหน้าแล้ว เลือกข้ามหน้าจะงงว่าเลือกอะไรไปบ้าง)
   const assignableFiltered = paged.filter(isAssignable);
   const allAssignableSelected =
     assignableFiltered.length > 0 && assignableFiltered.every((j) => selectedIds.has(j.id));
@@ -343,7 +344,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
   }
 
   function toggleSelectAll() {
-    setSelectedIds((prev) => {
+    setSelectedIds(() => {
       if (allAssignableSelected) return new Set();
       return new Set(assignableFiltered.map((j) => j.id));
     });
@@ -352,11 +353,17 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
   async function handleBulkAssign(techUsername, thaiDate, time) {
     const admin = getSessionAdmin();
     const adminUsername = admin?.username || "";
-    const jobsToAssign = jobs.filter((j) => selectedIds.has(j.id));
+    const jobsToAssign = visibleJobs.filter((j) => selectedIds.has(j.id));
 
     try {
+      // ⏱️ บันทึกทั้ง time และ appointment_time ลง Firebase พร้อมกัน
       await Promise.all(
-        jobsToAssign.map((j) => assignTechnicianToRepair(j.id, techUsername, adminUsername, thaiDate, { time }))
+        jobsToAssign.map((j) =>
+          assignTechnicianToRepair(j.id, techUsername, adminUsername, thaiDate, {
+            time,
+            appointment_time: time,
+          })
+        )
       );
       logActivity({
         adminUsername,
@@ -374,7 +381,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
               user_username: techUsername,
               role: "TECHNICIAN",
               title: `งานซ่อมใหม่: ${ticketLabel}`,
-              message: `เครื่อง ${j.machine || ""} (${thaiDate || "ไม่ระบุวัน"})`,
+              message: `เครื่อง ${j.machine || ""} (${thaiDate || "ไม่ระบุวัน"}) เวลา ${time} น.`,
               type: "JOB",
               target_id: j.id,
             }).catch((err) => console.error("[RepairJobsPage] notify technician failed:", err));
@@ -384,7 +391,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
                 user_username: j.customer_username,
                 role: "CUSTOMER",
                 title: `จัดสรรช่างแล้ว: ${ticketLabel}`,
-                message: `ช่าง ${techUsername} ได้รับมอบหมายงานซ่อมของคุณแล้ว`,
+                message: `ช่าง ${techUsername} ได้รับมอบหมายงานซ่อมของคุณแล้ว วันที่ ${thaiDate} เวลา ${time} น.`,
                 type: "JOB",
                 target_id: j.id,
               }).catch((err) => console.error("[RepairJobsPage] notify customer failed:", err));
@@ -424,12 +431,6 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
         </div>
 
         <div className="px-5 pt-4 overflow-x-auto">
-          {/* ตัดสีต่างๆ ของแต่ละแท็บออกทั้งหมดตามที่ขอ (ดูตาลาย) เหลือแค่
-              ตัวอักษรสีดำเสมอ ทุกปุ่มมีกรอบและขนาดเท่ากันหมด (grid-cols-8
-              เพราะ JOB_STATUS_TABS มีคงที่ 8 รายการพอดี) ปุ่มที่กำลังเลือกอยู่
-              จะเปลี่ยนกรอบเป็นสีน้ำเงินจางๆ (border-blue-200 + bg-blue-50)
-              แบบเดียวกับโทนสีของการ์ด "งานทั้งหมด" ในหน้า Dashboard — ชื่อแท็บ
-              ชิดซ้าย ตัวเลขจำนวนงาน (จาก computeTabCounts) ชิดขวา */}
           <div className="grid grid-cols-8 gap-2 min-w-[720px]">
             {JOB_STATUS_TABS.map((t) => {
               const active = tab === t;
@@ -445,15 +446,6 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
                   }
                 >
                   <span className="truncate">{t}</span>
-                  {/* 🔴 [แก้ไข] แท็บที่กำลังเลือกอยู่ใช้พื้นฟ้าอ่อน (bg-blue-50)
-                      ที่ตั้งใจให้อยู่เฉยๆ ไม่เปลี่ยนตามธีมมืด เหมือน badge สถานะ
-                      ทั่วไป (ผู้ใช้แจ้งว่าอยากให้กลุ่มนี้ชัดเจนเหมือนเดิม
-                      ไม่ต้องเปลี่ยนสี) เลยใช้ text-blue-900 แทน text-slate-800/
-                      text-slate-400 เฉพาะตอน active เพราะสี text-slate-* โดน
-                      กฎโหมดมืดด้านบนแปลงเป็นสีอ่อนเสมอ ซึ่งจะกลายเป็นอ่านไม่ออก
-                      บนพื้นฟ้าอ่อนที่ไม่ได้เปลี่ยนสีตาม (ตอนไม่ active พื้นเป็น
-                      bg-white ซึ่งกฎโหมดมืดแปลงให้เข้มขึ้นอยู่แล้ว เลยยังใช้
-                      text-slate-* แบบเดิมได้ปกติ) */}
                   <span className={"text-xs shrink-0 " + (active ? "text-blue-900/70" : "text-slate-400")}>
                     {tabCounts[t] ?? 0}
                   </span>
@@ -520,6 +512,10 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
                 <tbody>
                   {paged.map((j) => {
                     const effStatus = getEffectiveRepairStatus(j);
+                    // ⏱️ อ่านเวลาแบบ Fallback รองรับทั้ง appointment_time และ time
+                    const rawTime = (j.appointment_time || j.time || "").toString().trim();
+                    const cleanTime = rawTime.replace(/\s*น\.?$/, "");
+
                     return (
                       <tr
                         key={j.id}
@@ -556,7 +552,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
                           )}
                         </td>
                         <td className="py-2.5 text-slate-500">{displayStoredDate(j.date)}</td>
-                        <td className="py-2.5 text-slate-500">{j.appointment_time ? `${j.appointment_time} น.` : "-"}</td>
+                        <td className="py-2.5 text-slate-500">{cleanTime ? `${cleanTime} น.` : "-"}</td>
                         <td className="py-2.5">
                           <span
                             className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
@@ -613,7 +609,7 @@ export default function RepairJobsPage({ initialTab, initialQuery }) {
       </Card>
 
       {selectedJob ? (
-        <JobDetailModal job={selectedJob} technicians={technicians} onClose={() => setSelectedJob(null)} />
+        <JobDetailModal job={selectedJob} technicians={technicians} onClose={() => setSelectedJob(null)} onNavigate={onNavigate} />
       ) : null}
       {showBulkAssign ? (
         <BulkAssignModal

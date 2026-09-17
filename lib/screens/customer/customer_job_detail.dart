@@ -71,6 +71,10 @@ class CustomerJobInfo {
   final String billId;
   final double totalPrice;
   final bool isPaid;
+  // 🆕 [ใหม่] true = เครื่องจักรอยู่ในประกัน บิลนี้ลูกค้าไม่ต้องชำระเงิน
+  // (แอดมินมาร์กไว้ตอนออกบิลใน admin_create_invoice.dart) — ใช้ซ่อนปุ่มชำระเงิน/
+  // QR code ใน _PaymentCard ด้านล่าง
+  final bool isWarrantyCovered;
   final String? paymentSlipUrl;
   final int? ratingStars;
   final String? ratingComment;
@@ -96,6 +100,7 @@ class CustomerJobInfo {
     required this.billId,
     required this.totalPrice,
     required this.isPaid,
+    this.isWarrantyCovered = false,
     this.paymentSlipUrl,
     this.ratingStars,
     this.ratingComment,
@@ -223,6 +228,10 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
       final totalPrice = _asDouble(repair['total_price']) ?? 0;
       final billId = _asString(repair['bill_id']) ?? '-';
       final isPaid = (_asInt(repair['is_paid']) ?? 0) == 1 || repair['is_paid'] == true;
+      // 🆕 [ใหม่] เครื่องจักรอยู่ในประกัน — ไม่ต้องชำระเงิน (ดูฝั่งแอดมินที่
+      // admin_create_invoice.dart / updateRepairBill() ใน services.dart)
+      final isWarrantyCovered = repair['is_warranty_covered'] == true ||
+          repair['is_warranty_covered'] == 1;
       final paymentSlipUrl = _asString(repair['customer_payment_slip']);
 
       // อ่านค่าคะแนนและความคิดเห็น
@@ -269,6 +278,7 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
           billId: billId,
           totalPrice: totalPrice,
           isPaid: isPaid,
+          isWarrantyCovered: isWarrantyCovered,
           paymentSlipUrl: paymentSlipUrl,
           ratingStars: ratingStars,
           ratingComment: ratingComment,
@@ -311,6 +321,9 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
   }
 
   Future<void> _handlePay() async {
+    // 🆕 [ใหม่] กันไว้อีกชั้น — บิลที่อยู่ในประกันไม่ต้องชำระเงิน ไม่ควรเปิด
+    // หน้า QR code จ่ายเงินได้เลย (ปุ่ม "ชำระเงิน" ก็ถูกซ่อนไปแล้วใน _PaymentCard)
+    if (_job.isWarrantyCovered) return;
     if (_job.totalPrice <= 0 || _job.id == null) {
       _snack('ยังไม่มีบิลให้ชำระในขณะนี้');
       return;
@@ -477,6 +490,7 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
           totalPrice: _job.totalPrice,
           isPaying: _isPaying,
           paid: _paid,
+          isWarrantyCovered: _job.isWarrantyCovered,
           awaitingVerification: !_paid &&
               (_job.paymentSlipUrl != null && _job.paymentSlipUrl!.isNotEmpty),
           onPay: _handlePay,
@@ -747,6 +761,9 @@ class _PaymentCard extends StatelessWidget {
   final bool isPaying;
   final bool paid;
   final bool awaitingVerification;
+  // 🆕 [ใหม่] true = เครื่องจักรอยู่ในประกัน บิลนี้ไม่มีค่าใช้จ่ายจริง — ซ่อนปุ่ม
+  // "ชำระเงิน" และไม่เปิดหน้า QR code ให้สแกนจ่าย โชว์ข้อความอธิบายแทน
+  final bool isWarrantyCovered;
   final VoidCallback onPay;
 
   const _PaymentCard({
@@ -755,6 +772,7 @@ class _PaymentCard extends StatelessWidget {
     required this.isPaying,
     required this.paid,
     this.awaitingVerification = false,
+    this.isWarrantyCovered = false,
     required this.onPay,
   });
 
@@ -782,6 +800,36 @@ class _PaymentCard extends StatelessWidget {
                 fontSize: 13,
                 color: AppColors.textSubtitle,
                 fontFamily: AppStyles.fontFamily,
+              ),
+            )
+          // 🆕 [ใหม่] เช็คก่อนสถานะ "ชำระเงินแล้ว/รอตรวจสอบ" อื่น ๆ ทั้งหมด —
+          // บิลที่อยู่ในประกันถูกมาร์กเป็น is_paid ให้อัตโนมัติอยู่แล้ว (ดู
+          // updateRepairBill() ใน services.dart) แต่ต้องโชว์ข้อความคนละแบบกับ
+          // "ชำระเงินเรียบร้อยแล้ว" เพื่อไม่ให้ลูกค้าเข้าใจผิดว่าตัวเองจ่ายเงินไปแล้ว
+          else if (isWarrantyCovered)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.greenBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.shield_outlined,
+                      color: AppColors.greenText, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'ไม่มีค่าใช้จ่าย เนื่องจากเครื่องจักรอยู่ในประกัน',
+                      style: TextStyle(
+                        color: AppColors.greenText,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: AppStyles.fontFamily,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             )
           else if (paid)

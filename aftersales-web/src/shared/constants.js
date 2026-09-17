@@ -18,6 +18,11 @@ export const COLORS = {
 export const STATUS_BADGE = {
   "รอจัดสรรช่าง": "bg-amber-50 text-amber-600 border border-amber-200",
   "รอดำเนินการ": "bg-orange-50 text-orange-600 border border-orange-200",
+  // 🆕 [ใหม่] สถานะ "กำลังเดินทาง" (ช่างถึงคิวงานแล้ว กำลังมุ่งหน้าไปหาลูกค้า
+  // ยังไม่ได้ลงมือซ่อมจริง) — ตรงกับที่ฝั่ง Flutter เพิ่มเข้ามา (ดู
+  // markTechnicianTraveling() ใน services.dart) ให้สีฟ้าอ่อน (sky) แยกจาก
+  // "กำลังซ่อม" (blue) ให้เห็นชัดว่าเป็นคนละขั้นตอนกัน
+  "กำลังเดินทาง": "bg-sky-50 text-sky-600 border border-sky-200",
   "กำลังซ่อม": "bg-blue-50 text-blue-600 border border-amber-200",
   "กำลังดำเนินการ": "bg-blue-50 text-blue-600 border border-blue-200",
   "มีปัญหา": "bg-red-50 text-red-600 border border-red-200",
@@ -102,7 +107,9 @@ export function compareAppointmentDate(dateStr) {
  * คำนวณสถานะที่แท้จริงของงานซ่อม
  * - ยังไม่มีช่าง -> รอจัดสรรช่าง
  * - มีช่างแล้ว & ยังไม่ถึงวันนัด -> รอดำเนินการ
- * - มีช่างแล้ว & ถึงวันนัดแล้ว -> กำลังซ่อม
+ * - มีช่างแล้ว & ถึงวันนัดแล้ว & ยังไม่ถึงคิว/ยังไม่เริ่ม -> รอดำเนินการ
+ * - มีช่างแล้ว & ถึงวันนัดแล้ว & ถึงคิวแล้ว (เปิดแผนที่แล้ว) -> กำลังเดินทาง
+ * - มีช่างแล้ว & ถึงวันนัดแล้ว & กดรับงานแล้ว -> กำลังซ่อม
  * - มีช่างแล้ว & เลยวันนัดแล้ว -> เกินกำหนดเวลา
  */
 export function getEffectiveRepairStatus(job = {}) {
@@ -135,8 +142,22 @@ export function getEffectiveRepairStatus(job = {}) {
   switch (dateComp) {
     case "future":
       return "รอดำเนินการ";
+    // 🐛 [แก้ไข] BUG: เดิมถึงวันนัดปุ๊บ บังคับ return "กำลังซ่อม" เสมอไม่ว่า
+    // สถานะจริงจะเป็นอะไร — ตรงกับบั๊กเดียวกันที่แก้ไปแล้วฝั่ง Flutter
+    // (getEffectiveRepairStatus ใน services.dart) ทำให้ระบบคิวงาน/สถานะ
+    // "กำลังเดินทาง" ที่เพิ่มเข้ามาใหม่ฝั่งแอปไม่ถูกสะท้อนบนเว็บเลย (ทุกงานของ
+    // วันนี้ที่มีช่างจะโชว์ "กำลังซ่อม" เหมือนกันหมดแม้ยังไม่ถึงคิว/ยังไม่ได้
+    // กดรับงานจริง) — แก้ให้คืนค่าตามสถานะจริงที่บันทึกไว้แทน ถ้ายังไม่ถึงขั้น
+    // ไหนเลยให้ถือว่ายัง "รอดำเนินการ" เหมือนงานที่ยังไม่ถึงวันนัด
     case "today":
-      return "กำลังซ่อม";
+      if (
+        rawStatus === "กำลังเดินทาง" ||
+        rawStatus === "กำลังดำเนินการ" ||
+        rawStatus === "กำลังซ่อม"
+      ) {
+        return rawStatus;
+      }
+      return "รอดำเนินการ";
     case "past":
       return "เกินกำหนดเวลา";
     default:
@@ -168,8 +189,16 @@ export function isScheduledPendingStatus(status) {
   return status === "รอดำเนินการ";
 }
 
+// 🆕 [ใหม่] รวม "กำลังเดินทาง" (สถานะใหม่ก่อนหน้า "กำลังซ่อม" จริง — ดูคอมเมนต์
+// ใน getEffectiveRepairStatus ด้านบน) เข้าเป็น "กำลังดำเนินการอยู่" เหมือนกันด้วย
+// กันตกหล่นจากทุกจุดที่ใช้ฟังก์ชันนี้เช็ค (การ์ด "ดูช่าง"/แจ้งเตือนงานค้างสถานะ
+// นาน ใน DashboardPage.jsx)
 export function isInProgressStatus(status) {
-  return status === "กำลังซ่อม" || status === "กำลังดำเนินการ";
+  return (
+    status === "กำลังซ่อม" ||
+    status === "กำลังดำเนินการ" ||
+    status === "กำลังเดินทาง"
+  );
 }
 
 export function isDoneStatus(status) {

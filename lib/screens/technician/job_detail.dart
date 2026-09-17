@@ -44,7 +44,7 @@ class JobDetailPage extends StatefulWidget {
 }
 
 /// สถานะของงาน แบ่งเป็นช่วงสำหรับตัดสินใจว่าจะโชว์ action ไหน
-enum _Stage { waiting, inProgress, problem, done }
+enum _Stage { waiting, traveling, inProgress, problem, done }
 
 class _JobDetailPageState extends State<JobDetailPage> {
   bool _loading = true;
@@ -57,6 +57,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
   bool _isSavingPrice = false;
   bool _isMarkingProblem = false;
   bool _isCancellingProblem = false;
+  // 🆕 [ใหม่] สถานะคิวงานของช่างในวันนัดเดียวกัน (ใช้ล็อกปุ่ม "เริ่มดำเนินการ"
+  // ให้กดได้เฉพาะงานที่ถึงคิวแล้วเท่านั้น — ดู getQueueInfo() ใน services.dart)
+  int _queuePosition = 1;
+  int _queueTotal = 1;
+  bool _isArriving = false;
 
   @override
   void initState() {
@@ -74,6 +79,9 @@ class _JobDetailPageState extends State<JobDetailPage> {
     final status = _job.status;
     if (status.contains('เสร็จ')) return _Stage.done;
     if (status.contains('มีปัญหา')) return _Stage.problem;
+    // 🆕 [ใหม่] เช็ค "กำลังเดินทาง" ก่อน — เป็นขั้นตอนใหม่ระหว่าง "รอดำเนินการ"
+    // กับ "กำลังซ่อม" (เดินทางไปหาลูกค้าแล้วแต่ยังไม่ได้ลงมือซ่อมจริง)
+    if (status.contains('กำลังเดินทาง')) return _Stage.traveling;
     if (status.contains('กำลังดำเนินการ') || status.contains('กำลังซ่อม')) {
       return _Stage.inProgress;
     }
@@ -157,6 +165,25 @@ class _JobDetailPageState extends State<JobDetailPage> {
             estimatedPrice > 0 ? estimatedPrice.toStringAsFixed(0) : '';
         _loading = false;
       });
+
+      // 🆕 [ใหม่] โหลดคิวงานแยกต่างหาก (ไม่บล็อก UI หลัก) เพื่อโชว์ว่าตอนนี้
+      // งานนี้อยู่คิวที่เท่าไหร่ และล็อกปุ่ม "เริ่มดำเนินการ" ถ้ายังไม่ถึงคิว
+      final repairIdForQueue = resolveRecordId(repair);
+      if (repairIdForQueue != null) {
+        try {
+          final queueInfo =
+              await db.DatabaseHelper.instance.getQueueInfo(repairIdForQueue);
+          if (!mounted) return;
+          setState(() {
+            _queuePosition = queueInfo.position;
+            _queueTotal = queueInfo.total;
+          });
+        } catch (_) {
+          // เงียบไว้ — ถ้าเช็คคิวพลาด ปล่อยให้ปุ่มกดได้ตามค่า default (คิวที่ 1)
+          // แล้วให้ markTechnicianTraveling() ฝั่ง services.dart เป็นด่านสุดท้าย
+          // ที่บังคับเช็คคิวจริงอีกครั้งตอนกดปุ่ม
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -164,32 +191,39 @@ class _JobDetailPageState extends State<JobDetailPage> {
     }
   }
 
-  // ✅ รับงาน / เริ่มดำเนินการซ่อม
-  Future<void> _acceptJob() async {
+  // ✅ [แก้ไข] เดิมกดปุ่มนี้แล้วเปลี่ยนสถานะตรงไปเป็น "กำลังดำเนินการ" ทันที
+  // ข้ามขั้นตอน "กำลังเดินทาง" ไปเลย ตอนนี้เปลี่ยนเป็นเริ่มเดินทางก่อน (ตาม
+  // คิวงานเท่านั้น — ดู markTechnicianTraveling() ใน services.dart) แล้วค่อยกด
+  // "ถึงที่หมายแล้ว" (_confirmArrived) อีกทีตอนถึงบ้านลูกค้าจริง ๆ ถึงจะเปลี่ยน
+  // เป็น "กำลังซ่อม"
+  Future<void> _startTravel() async {
+    if (_job.id == null) return;
     setState(() => _isAccepting = true);
     try {
-      await db.DatabaseHelper.instance.updateRepairStatus(
-        widget.repairId,
-        'กำลังดำเนินการ',
-        techUsername: db.Session.currentUsername,
-      );
-      if (_customerUsername.isNotEmpty) {
-        await db.DatabaseHelper.instance.createNotification({
-          'user_username': _customerUsername,
-          'role': 'CUSTOMER',
-          'title': 'ช่างเริ่มดำเนินการซ่อมแล้ว',
-          'message': 'งานซ่อม ${_job.ticketId} กำลังดำเนินการโดยช่าง',
-          'type': 'REPAIR_IN_PROGRESS',
-          'target_id': widget.repairId,
-          'is_read': 0,
-        });
-      }
+      await db.DatabaseHelper.instance.markTechnicianTraveling(_job.id);
       await _loadJob();
     } catch (e) {
       if (!mounted) return;
-      _snack('รับงานไม่สำเร็จ: $e');
+      _snack('เริ่มเดินทางไม่สำเร็จ: $e');
     } finally {
       if (mounted) setState(() => _isAccepting = false);
+    }
+  }
+
+  // 🆕 [ใหม่] ช่างกดยืนยันว่าถึงที่หมาย (บ้าน/สถานที่ลูกค้า) แล้ว — เปลี่ยนสถานะ
+  // จาก "กำลังเดินทาง" เป็น "กำลังซ่อม" และแจ้งเตือนลูกค้าอัตโนมัติ (ดู
+  // markTechnicianArrived() ใน services.dart)
+  Future<void> _confirmArrived() async {
+    if (_job.id == null) return;
+    setState(() => _isArriving = true);
+    try {
+      await db.DatabaseHelper.instance.markTechnicianArrived(_job.id);
+      await _loadJob();
+    } catch (e) {
+      if (!mounted) return;
+      _snack('ยืนยันถึงที่หมายไม่สำเร็จ: $e');
+    } finally {
+      if (mounted) setState(() => _isArriving = false);
     }
   }
 
@@ -621,7 +655,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
           isSavingPrice: _isSavingPrice,
           isMarkingProblem: _isMarkingProblem,
           isCancellingProblem: _isCancellingProblem,
-          onAccept: _acceptJob,
+          isArriving: _isArriving,
+          queuePosition: _queuePosition,
+          queueTotal: _queueTotal,
+          onStartTravel: _startTravel,
+          onArrived: _confirmArrived,
           onSavePrice: _savePrice,
           onOpenReport: _openReportForm,
           onRequestParts: _openRequestParts,
@@ -684,7 +722,12 @@ class _StageActionCard extends StatelessWidget {
   final bool isSavingPrice;
   final bool isMarkingProblem;
   final bool isCancellingProblem;
-  final VoidCallback onAccept;
+  // 🆕 [ใหม่] สถานะ/ข้อมูลสำหรับขั้นตอน "เริ่มเดินทาง" → "ถึงที่หมายแล้ว"
+  final bool isArriving;
+  final int queuePosition;
+  final int queueTotal;
+  final VoidCallback onStartTravel;
+  final VoidCallback onArrived;
   final VoidCallback onSavePrice;
   final VoidCallback onOpenReport;
   final VoidCallback onRequestParts;
@@ -698,7 +741,11 @@ class _StageActionCard extends StatelessWidget {
     required this.isSavingPrice,
     required this.isMarkingProblem,
     required this.isCancellingProblem,
-    required this.onAccept,
+    required this.isArriving,
+    required this.queuePosition,
+    required this.queueTotal,
+    required this.onStartTravel,
+    required this.onArrived,
     required this.onSavePrice,
     required this.onOpenReport,
     required this.onRequestParts,
@@ -716,22 +763,60 @@ class _StageActionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (stage) {
       case _Stage.waiting:
+        // 🆕 [ใหม่] ล็อกปุ่มถ้ายังไม่ถึงคิวงานนี้ (ตำแหน่งที่ 1 ของคิววันนัด
+        // เดียวกันเท่านั้นถึงจะเริ่มเดินทางได้ — ดู getQueueInfo() ใน
+        // services.dart) กันช่างข้ามคิวไปเริ่มงานอื่นก่อนงานที่ควรทำก่อน
+        final isMyTurn = queuePosition == 1;
         return JobSectionCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const JobSectionTitle('เริ่มงานซ่อม', primary: false),
               const SizedBox(height: 16),
+              Text(
+                isMyTurn
+                    ? 'กดเริ่มดำเนินการเมื่อพร้อมออกเดินทางไปหาลูกค้า สถานะจะ'
+                        'เปลี่ยนเป็น "กำลังเดินทาง"'
+                    : 'ยังไม่ถึงคิวงานนี้ (คิวที่ $queuePosition จาก $queueTotal '
+                        'งานของวันนี้) — ต้องทำงานคิวก่อนหน้าให้เสร็จ/ถึงคิวก่อน '
+                        'ถึงจะเริ่มงานนี้ได้',
+                textAlign: TextAlign.center,
+                style: isMyTurn
+                    ? _hintStyle
+                    : _hintStyle.copyWith(
+                        color: AppColors.redText, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 20),
+              JobPrimaryButton(
+                label: 'เริ่มดำเนินการ',
+                onPressed: isMyTurn ? onStartTravel : null,
+                isLoading: isAccepting,
+              ),
+            ],
+          ),
+        );
+
+      // 🆕 [ใหม่] ขั้นตอน "กำลังเดินทาง" — ช่างกำลังไปหาลูกค้า ยังไม่ได้ลงมือซ่อม
+      // จริง กดยืนยัน "ถึงที่หมายแล้ว" เมื่อไปถึงบ้าน/สถานที่ลูกค้าแล้วเท่านั้น
+      case _Stage.traveling:
+        return JobSectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const JobSectionTitle('กำลังเดินทางไปหาลูกค้า', primary: false),
+              const SizedBox(height: 16),
               const Text(
-                'กดรับงานเมื่อพร้อมเริ่มดำเนินการซ่อม สถานะจะเปลี่ยนเป็น "กำลังดำเนินการ"',
+                'เมื่อถึงบ้าน/สถานที่ของลูกค้าแล้ว กดยืนยันด้านล่าง ระบบจะแจ้ง'
+                'เตือนลูกค้าอัตโนมัติ และเปลี่ยนสถานะเป็น "กำลังซ่อม"',
                 textAlign: TextAlign.center,
                 style: _hintStyle,
               ),
               const SizedBox(height: 20),
               JobPrimaryButton(
-                label: 'รับงาน / เริ่มดำเนินการ',
-                onPressed: onAccept,
-                isLoading: isAccepting,
+                label: 'ถึงที่หมายแล้ว',
+                icon: Icons.pin_drop_outlined,
+                onPressed: onArrived,
+                isLoading: isArriving,
               ),
             ],
           ),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -44,7 +44,7 @@ import {
   createNotification,
   updateRow,
 } from "../services/firebaseDb";
-import { getSessionAdmin } from "../services/session";
+import { getSessionAdmin, isMainAdmin } from "../services/session";
 import JobDetailModal from "../components/JobDetailModal";
 
 function findActiveJobForTech(techUsername, repairs) {
@@ -83,6 +83,14 @@ function parseIsoDate(raw) {
   if (typeof raw !== "string" || !raw) return null;
   const d = new Date(raw);
   return isNaN(d.getTime()) ? null : d;
+}
+
+function toDateInputValue(d) {
+  if (!d || isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 const STAT_RANGE_OPTIONS = [
@@ -606,10 +614,6 @@ const REPORT_RANGE_OPTIONS = [
   { key: "custom", label: "กำหนดเอง" },
 ];
 
-// 🔴 [แก้ไข] เพิ่มโหมด "custom" (กำหนดเอง) — กรองด้วยช่วงวันที่ customStart/
-// customEnd ตรงๆ แทนที่จะเทียบกับ "วันนี้" แบบ today/week/month/year เดิม
-// 🔴 [แก้ไข] ตัดตัวเลือก "ทั้งหมด" ออกทั้งระบบตามที่ขอ — เหลือ 5 ตัวเลือก
-// (วันนี้/สัปดาห์นี้/เดือนนี้/ปีนี้/กำหนดเอง) เท่านั้น
 function filterByCreatedRange(repairs, rangeKey, customStart, customEnd) {
   const now = new Date();
   if (rangeKey === "custom") {
@@ -647,10 +651,6 @@ function filterByCreatedRange(repairs, rangeKey, customStart, customEnd) {
   });
 }
 
-// 🆕 หาช่วงเวลา "ก่อนหน้า" ที่เทียบเท่ากันของแต่ละตัวเลือก ไว้คำนวณ % การเติบโต
-// (เช่น เลือก "วันนี้" ก็เทียบกับเมื่อวาน, "สัปดาห์นี้" เทียบกับสัปดาห์ก่อน)
-// "ทั้งหมด" กับ "กำหนดเอง" ไม่มีช่วงก่อนหน้าที่ชัดเจนตามธรรมชาติ คืน [] ไปเลย
-// (ไม่โชว์ % การเติบโตในสองกรณีนี้)
 function filterByPreviousPeriod(repairs, rangeKey) {
   const now = new Date();
   if (rangeKey === "today") {
@@ -685,9 +685,6 @@ function filterByPreviousPeriod(repairs, rangeKey) {
   return [];
 }
 
-// 🆕 ป้ายต่อท้าย "รายงานประจำ.../รายงานสรุปผลประจำ..." ตามตัวเลือกช่วงเวลาที่
-// เลือกไว้ — "ทั้งหมด" ไม่เข้าแพทเทิร์นคำนี้ (ไม่มีใครพูดว่า "รายงานประจำ
-// ทั้งหมด") คืน null ไว้ให้ผู้เรียกไปต่อคำเป็นกรณีพิเศษแทน
 function reportPeriodSuffix(rangeKey) {
   switch (rangeKey) {
     case "today":
@@ -705,8 +702,6 @@ function reportPeriodSuffix(rangeKey) {
   }
 }
 
-// 🆕 ป้ายชื่อ "ช่วงก่อนหน้า" ไว้ใช้กับข้อความ "การเติบโตจาก...ก่อน" — ทั้งหมด/
-// กำหนดเอง ไม่มีช่วงก่อนหน้า คืน null (ผู้เรียกจะซ่อนแถวนี้ไปเลย)
 function growthPeriodLabel(rangeKey) {
   switch (rangeKey) {
     case "today":
@@ -722,18 +717,9 @@ function growthPeriodLabel(rangeKey) {
   }
 }
 
-// 🔴 [แก้ไข] เดิมเป็นตัวเลือกช่วงเวลาแยกของการ์ด "สถิติงานซ่อมตามระดับความ
-// รุนแรง" ใบเดียว — ตามที่ขอ ยกระดับมาเป็นตัวเลือกกลางตัวเดียวของทั้งโซน
-// "รายงานสรุป" ใช้ร่วมกันทุกการ์ด (ยกเว้น "สถิติการเงิน" ที่เป็นกราฟแนวโน้ม
-// รายเดือนอยู่แล้ว มีตัวเลือกช่วงเวลาเป็นของตัวเองอยู่แล้วโดยธรรมชาติคนละแบบ
-// กัน) ลดขั้นตอนที่ต้องไปกดเลือกทีละการ์ดตามที่ขอ — เพิ่มตัวเลือก "กำหนดเอง"
-// พร้อมช่องเลือกวันที่เข้า-ออกด้วย
 function ReportRangePicker({ range, onChange, customStart, customEnd, onCustomStartChange, onCustomEndChange }) {
   const [open, setOpen] = useState(false);
   const label = REPORT_RANGE_OPTIONS.find((r) => r.key === range)?.label;
-  // 🔴 [แก้ไข] ช่องเลือกวันที่ "กำหนดเอง" ต้องเลือกล่วงหน้าไม่ได้เด็ดขาดตามที่
-  // ขอ — จำกัด max ของทั้งวันเริ่มและวันจบไม่ให้เกินวันนี้ (วันเริ่มยังจำกัดไม่
-  // ให้เกินวันจบที่เลือกไว้ด้วยเหมือนเดิม)
   const todayIso = toDateInputValue(new Date());
   const startMax = customEnd && customEnd < todayIso ? customEnd : todayIso;
   return (
@@ -765,11 +751,6 @@ function ReportRangePicker({ range, onChange, customStart, customEnd, onCustomSt
           </div>
         ) : null}
       </div>
-      {/* 🔴 [แก้ไข] ใช้ DateField (ปฏิทินที่วาดเอง) แทน <input type="date">
-          ของเบราว์เซอร์ เพื่อคุมหน้าตาการแสดงผลวันที่ให้เป็น พ.ศ. เสมอ ค่าที่
-          เก็บ/ใช้กรองข้อมูลยังเป็น ISO string "YYYY-MM-DD" เหมือนเดิมทุกประการ
-          🔴 [แก้ไข] เพิ่ม max={todayIso}/{startMax} กันไม่ให้เลือกวันในอนาคตได้
-          ทั้งช่องเริ่มและช่องจบ ตามที่ขอ */}
       {range === "custom" ? (
         <div className="flex items-center gap-1.5 text-xs text-slate-500">
           <div className="w-36">
@@ -875,10 +856,6 @@ function SeverityBreakdownSection({ repairs }) {
   );
 }
 
-// 🔴 [แก้บั๊ก] เหตุผลเดียวกับที่แก้ใน TechniciansPage.jsx — จับกลุ่มด้วย
-// rating_technician_username (ช่างที่ถูกให้คะแนนจริงตอนนั้น) ก่อนเสมอ ให้ตรง
-// กับ getTechnicianRatingStats() ฝั่งมือถือ ไม่ใช้ technician_username ปัจจุบัน
-// ของงานเป็นหลัก เพราะงานอาจถูกโอนให้ช่างคนอื่นทีหลังได้
 function computeAvgRatingByUsername(repairs) {
   const sums = {};
   repairs.forEach((r) => {
@@ -976,8 +953,6 @@ function ReportRow({ title, subtitle, status, statusColor, onClick }) {
 function MonthlyReportCard({ data, technicians, repairs, cardTitle, periodSuffix, onNavigate }) {
   const [showTechModal, setShowTechModal] = useState(false);
   const jobsDone = data.completedThisMonth === data.jobsThisMonth && data.jobsThisMonth > 0;
-  // 🆕 ชื่อ 2 แถวแรกผูกกับช่วงเวลาที่เลือกไว้ตัวเดียวกับหัวข้อการ์ด (periodSuffix
-  // เป็น null เมื่อเลือก "ทั้งหมด" เพราะไม่เข้าแพทเทิร์นคำว่า "ประจำ...")
   const jobSummaryTitle = periodSuffix ? `สรุปงานซ่อมประจำ${periodSuffix}` : "สรุปงานซ่อมทั้งหมด";
   const financeSummaryTitle = periodSuffix ? `รายรับ-รายจ่ายประจำ${periodSuffix}` : "รายรับ-รายจ่ายทั้งหมด";
 
@@ -1021,7 +996,6 @@ function MonthlyReportCard({ data, technicians, repairs, cardTitle, periodSuffix
       color: overallAvg !== null ? "#3B82F6" : "#94A3B8",
       onClick: () => setShowTechModal(true),
     },
-    // 🔴 [แก้ไข] เอาแถว "รายงานความพึงพอใจลูกค้า" ออกตามที่ขอ
   ];
 
   return (
@@ -1057,12 +1031,6 @@ function fmtDayLabel(d) {
   return `${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${yearBE2}`;
 }
 
-// 🆕 [ใหม่] จัดข้อความช่วงวันที่ของ "แท่งรายสัปดาห์" (เช่น "1-5 ก.ย. 69") — รับ
-// วันเริ่ม (รวม) กับวันจบแบบ exclusive (ไม่รวม) แล้วคำนวณ "วันสุดท้ายจริง" (จบ
-// exclusive - 1 วัน) มาทำป้ายกำกับ ถ้าอยู่เดือน/ปีเดียวกันจะย่อเหลือ
-// "D1-D2 เดือนย่อ ปี" (หรือ "D เดือนย่อ ปี" เดี่ยว ๆ ถ้าเป็นวันเดียว) ถ้าคาบ
-// เกี่ยวข้ามเดือน/ปี (เผื่อกรณี "กำหนดเอง" ที่ช่วงวันที่ไม่ได้เริ่ม/จบพอดีเดือน)
-// จะโชว่เดือนของทั้งสองฝั่งแยกกันให้ชัดเจน
 function fmtWeekRangeLabel(startDate, endExclusive) {
   const lastDay = new Date(endExclusive);
   lastDay.setDate(lastDay.getDate() - 1);
@@ -1090,12 +1058,6 @@ function sumRevenueInRange(repairs, start, end) {
   return { paid, pending };
 }
 
-// 🔴 [แก้ไข] เดิมใช้ระบบ key ของตัวเอง (week/month1/month3/month6/year1/
-// custom) แยกจากตัวเลือกกลางของโซน "รายงานสรุป" — ตามที่ขอให้เชื่อมการ์ดนี้
-// เข้ากับตัวเลือกกลางด้วย เปลี่ยนมารับ key ชุดเดียวกับ REPORT_RANGE_OPTIONS
-// (today/week/month/year/all/custom) แทน แล้วเลือกความละเอียดของแท่งกราฟ
-// (รายวัน/รายสัปดาห์/รายเดือน) อัตโนมัติจากความยาวของช่วงที่ได้ ไม่ผูกกับชื่อ
-// key เหมือนเดิมแล้ว (ยืดหยุ่นกว่า เผื่อ "กำหนดเอง" ช่วงสั้น/ยาวไม่เท่ากัน)
 function buildRevenueBuckets(repairs, rangeKey, customStart, customEnd) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1120,9 +1082,6 @@ function buildRevenueBuckets(repairs, rangeKey, customStart, customEnd) {
     endDate.setDate(endDate.getDate() + 1);
     end = endDate;
   } else {
-    // 🔴 [แก้ไข] เดิมมี branch "ทั้งหมด" ย้อนไปหางานซ่อมเก่าที่สุดตรงนี้ — ตัด
-    // ตัวเลือก "ทั้งหมด" ออกทั้งระบบตามที่ขอแล้ว เหลือ branch นี้ไว้แค่กันเหนียว
-    // เผื่อได้ key แปลกที่ไม่รู้จัก (ไม่ควรเกิดขึ้นจริง) — fallback ไปต้นเดือนนี้
     start = new Date(today.getFullYear(), today.getMonth(), 1);
   }
 
@@ -1149,18 +1108,13 @@ function buildRevenueBuckets(repairs, rangeKey, customStart, customEnd) {
     });
   }
 
-  // 🔴 [แก้ไข] เดิมนับสัปดาห์แบบ "ทีละ 7 วันจากวันเริ่มช่วง" ตรงๆ (เช่น 1-7,
-  // 8-14, 15-...) ทำให้ตัวเลขดูไม่เป็นธรรมชาติ — เปลี่ยนมาแบ่งตามสัปดาห์ปฏิทิน
-  // จริง (อาทิตย์-เสาร์) แทน สัปดาห์แรกของช่วงอาจสั้นกว่า 7 วันถ้าวันเริ่มไม่ตรง
-  // วันอาทิตย์พอดี (เช่น "1-5 ก.ย." ถ้า 1 ก.ย. เป็นวันอังคาร) และสัปดาห์สุดท้าย
-  // จะถูกตัดไม่ให้เกิน `end` (ซึ่งไม่มีทางเกินวันนี้อยู่แล้ว — ห้ามโชว์วันในอนาคต)
   if (useWeeklyBuckets) {
     const weeks = [];
     let cursor = new Date(start);
     while (cursor < end) {
       const daysUntilSaturday = 6 - cursor.getDay();
       const calendarWeekEnd = new Date(cursor);
-      calendarWeekEnd.setDate(calendarWeekEnd.getDate() + daysUntilSaturday + 1); // exclusive (วันอาทิตย์ถัดไป)
+      calendarWeekEnd.setDate(calendarWeekEnd.getDate() + daysUntilSaturday + 1);
       const chunkEnd = calendarWeekEnd < end ? calendarWeekEnd : end;
       weeks.push({ start: new Date(cursor), end: chunkEnd });
       cursor = new Date(chunkEnd);
@@ -1185,17 +1139,6 @@ function buildRevenueBuckets(repairs, rangeKey, customStart, customEnd) {
   });
 }
 
-function toDateInputValue(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-// 🔴 [แก้ไข] เอาตัวเลือกช่วงเวลาของตัวเองออกแล้ว ตามที่ขอให้เชื่อมกับตัวเลือก
-// กลางของโซน "รายงานสรุป" ด้วย — รับ range/customStart/customEnd มาจาก
-// ReportZone แทน (ตัวเดียวกับที่ "สถิติงานซ่อมตามระดับความรุนแรง" และ
-// "รายงานประจำ..." ใช้อยู่แล้ว)
 function FinanceHistoryCard({ repairs, range, customStart, customEnd }) {
   const buckets = buildRevenueBuckets(repairs, range, customStart, customEnd);
   const totalPaid = buckets.reduce((sum, m) => sum + m.paid, 0);
@@ -1413,8 +1356,6 @@ function ReportPreviewModal({
   const jobSectionLabel = periodSuffix ? `งานซ่อม${periodSuffix}` : "งานซ่อมทั้งหมด";
   const severitySectionLabel = `งานซ่อมตามระดับความรุนแรง (${periodSuffix || "ทั้งหมด"})`;
 
-  // 🔴 [แก้ไข] ย้ายปุ่ม "คัดลอกรายงาน" มาไว้ในนี้แทน (เดิมอยู่ที่หัวโซน
-  // "รายงานสรุป" นอก popup — ตามที่ขอให้เอาออกจากตรงนั้นไปไว้ตรงนี้แทน)
   function handleCopyReport() {
     const lines = [
       title,
@@ -1452,10 +1393,6 @@ function ReportPreviewModal({
       onClose={onClose}
       maxWidth="max-w-6xl"
       footer={
-        // 🔴 [แก้ไข] w-full + justify-between ทำให้ปุ่ม "คัดลอกรายงาน" อยู่ชิด
-        // ซ้ายสุด ส่วน "ปิด"/"พิมพ์ฯ" ยังอยู่ชิดขวาเหมือนเดิม ตามที่ขอ (ปกติ
-        // footer ของ Modal จะจัดทุกปุ่มชิดขวาหมด — ใส่ div ห่อเองแบบนี้ทับ
-        // พฤติกรรมเดิมเฉพาะจุดนี้)
         <div className="flex items-center justify-between w-full">
           <button
             onClick={handleCopyReport}
@@ -1497,10 +1434,6 @@ function ReportPreviewModal({
           <p className="text-xs text-slate-400 mt-0.5">ข้อมูล ณ วันที่ {dateLabel}</p>
         </div>
 
-        {/* 🔴 [แก้ไข] เดิมทุก section เรียงต่อกันแนวตั้งอันเดียว ยาวมากต้องเลื่อน
-            ขึ้นลงอย่างเดียว — ตามที่ขอให้ขยายออกทางซ้าย-ขวาได้ด้วย เปลี่ยนเป็น
-            grid 2 คอลัมน์ (จอกว้างพอ) จับคู่ตามความสัมพันธ์ของเนื้อหา ยังเป็น
-            การจัดวางแบบแรก รายละเอียดค่อยปรับกันต่อได้ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
           <section>
             <h3 className="text-sm font-bold text-slate-700 mb-2 pb-1 border-b border-slate-100">
@@ -1644,11 +1577,6 @@ function ReportPreviewModal({
 function ReportZone({ repairs, partRequests, spareParts, technicians, onNavigate }) {
   const [showReportPreview, setShowReportPreview] = useState(false);
   const [companyName, setCompanyName] = useState("");
-  // 🆕 ตัวเลือกช่วงเวลากลางของทั้งโซน "รายงานสรุป" ตามที่ขอ — ใช้ร่วมกันทุก
-  // การ์ดในโซนนี้แล้ว (สถิติงานซ่อมตามความรุนแรง, รายงานประจำ..., สถิติการเงิน,
-  // สถิติการเบิกอะไหล่) ไม่ต้องไปกดเลือกทีละการ์ดอีกต่อไป
-  // 🔴 [แก้ไข] ตัดตัวเลือก "ทั้งหมด" ออกทั้งระบบตามที่ขอ — เปลี่ยนค่าเริ่มต้น
-  // มาเป็น "เดือนนี้" แทน (ตัวเลือกเดิม "all" ไม่มีอยู่แล้ว)
   const [masterRange, setMasterRange] = useState("month");
   const today = new Date();
   const [customStart, setCustomStart] = useState(toDateInputValue(new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())));
@@ -1664,7 +1592,6 @@ function ReportZone({ repairs, partRequests, spareParts, technicians, onNavigate
   const cardTitle = periodSuffix ? `รายงานประจำ${periodSuffix}` : "รายงานทั้งหมด";
   const previewTitle = periodSuffix ? `รายงานสรุปผลประจำ${periodSuffix}` : "รายงานสรุปผลทั้งหมด";
 
-  // งานซ่อม/คำขอเบิกอะไหล่ ที่กรองตามช่วงเวลากลางแล้ว ใช้ต่อกับทุกการ์ดในโซนนี้
   const rangedRepairs = filterByCreatedRange(repairs, masterRange, customStart, customEnd);
   const rangedPartRequests = filterByCreatedRange(partRequests, masterRange, customStart, customEnd);
 
@@ -1675,8 +1602,6 @@ function ReportZone({ repairs, partRequests, spareParts, technicians, onNavigate
 
   const completedInRange = rangedRepairs.filter((r) => getEffectiveRepairStatus(r) === "เสร็จสิ้น").length;
 
-  // 🆕 % การเติบโตเทียบกับ "ช่วงก่อนหน้า" ที่เทียบเท่ากับตัวเลือกที่เลือกไว้
-  // (ทั้งหมด/กำหนดเอง ไม่มีช่วงก่อนหน้าที่ชัดเจน เลยไม่โชว์ค่านี้)
   const previousPeriodRepairs = filterByPreviousPeriod(repairs, masterRange);
   let growthPercent = null;
   if (previousPeriodRepairs.length > 0) {
@@ -1685,12 +1610,6 @@ function ReportZone({ repairs, partRequests, spareParts, technicians, onNavigate
   }
   const growthLabel = growthPeriodLabel(masterRange);
 
-  // 🔴 [แก้ไข] ยอดชำระแล้ว/รอชำระ ในการ์ด "รายงานประจำ..." ตอนนี้อิงช่วงเวลา
-  // กลางที่เลือกไว้ (rangedRepairs) แทนที่จะบวกรวม 6 เดือนย้อนหลังตายตัวเหมือน
-  // เดิม — ส่วนตาราง "การเงินย้อนหลัง 6 เดือน" ใน popup ตัวอย่างก่อนดาวน์โหลด
-  // ยังคงใช้ monthlyRevenue/totalPaid/totalPending ชุดเดิม (6 เดือนย้อนหลัง
-  // ตายตัวเสมอ ไม่ขึ้นกับตัวเลือกช่วงเวลากลาง) เพราะเป็นตารางสรุปแนวโน้มระยะยาว
-  // ไว้เทียบเคียงเป็นบริบทเสริม ไม่ใช่ตัวเลขหลักของรายงานตามช่วงที่เลือก
   let rangedTotalPaid = 0;
   let rangedTotalPending = 0;
   rangedRepairs.forEach((r) => {
@@ -1790,26 +1709,54 @@ function ReportZone({ repairs, partRequests, spareParts, technicians, onNavigate
 }
 
 export default function DashboardPage({ onNavigate }) {
-  const { data: repairs, loading: loadingRepairs } = useDbList("repairs");
-  const { data: technicians } = useDbList("technicians");
-  const { data: notifications } = useDbList("notifications");
-  const { data: machines } = useDbList("machines");
-  const { data: customers } = useDbList("customers");
-  const { data: spareParts } = useDbList("spare_parts");
-  const { data: partRequests } = useDbList("part_requests");
-  const currentUsername = getSessionAdmin()?.username || "";
+  const { data: rawRepairs = [], loading: loadingRepairs } = useDbList("repairs");
+  const { data: technicians = [] } = useDbList("technicians");
+  const { data: notifications = [] } = useDbList("notifications");
+  const { data: machines = [] } = useDbList("machines");
+  const { data: customers = [] } = useDbList("customers");
+  const { data: spareParts = [] } = useDbList("spare_parts");
+  const { data: partRequests = [] } = useDbList("part_requests");
+
+  const admin = getSessionAdmin();
+  const isMain = isMainAdmin(admin);
+  const currentUsername = admin?.username || "";
+
   const [selectedJob, setSelectedJob] = useState(null);
   const [statsRange, setStatsRange] = useState("all");
   const { settings: webSettings } = useWebSettings();
   const dashboardPageSize = Number(webSettings.itemsPerPageDashboard) || 5;
 
+  // 🔒 กรองสิทธิ์งานซ่อม: แอดมินหลักเห็นทั้งหมด / แอดมินทั่วไปเห็นเฉพาะงานของตนเอง + งานที่ยังไม่มีคนรับผิดชอบ
+  const visibleRepairs = useMemo(() => {
+    if (!rawRepairs || !Array.isArray(rawRepairs)) return [];
+    if (isMain) return rawRepairs;
+    return rawRepairs.filter(
+      (r) =>
+        r.admin_username === currentUsername ||
+        !r.admin_username ||
+        r.admin_username === ""
+    );
+  }, [rawRepairs, isMain, currentUsername]);
+
+  // 🔒 กรองคำขอเบิกอะไหล่: ให้สอดคล้องกับงานที่แอดมินคนนี้รับผิดชอบ
+  const visiblePartRequests = useMemo(() => {
+    if (!partRequests || !Array.isArray(partRequests)) return [];
+    if (isMain) return partRequests;
+    const allowedRepairIds = new Set(
+      visibleRepairs.map((r) => String(r.id ?? r.record_id ?? ""))
+    );
+    return partRequests.filter(
+      (pr) => !pr.repair_id || allowedRepairIds.has(String(pr.repair_id))
+    );
+  }, [partRequests, isMain, visibleRepairs]);
+
   useEffect(() => {
-    if (!currentUsername || repairs.length === 0) return;
+    if (!currentUsername || visibleRepairs.length === 0) return;
     getWebSettings().then((settings) => {
       if (settings?.notifyOverdue === false) return;
       const today = new Date();
       const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const overdueJobs = repairs.filter((r) => {
+      const overdueJobs = visibleRepairs.filter((r) => {
         const eff = getEffectiveRepairStatus(r);
         if (eff === "เสร็จสิ้น" || eff === "ยกเลิก") return false;
         if (r.overdue_notified) return false;
@@ -1830,7 +1777,7 @@ export default function DashboardPage({ onNavigate }) {
         );
       });
     });
-  }, [repairs.length, currentUsername]);
+  }, [visibleRepairs.length, currentUsername]);
 
   useEffect(() => {
     if (!currentUsername || spareParts.length === 0) return;
@@ -1861,12 +1808,12 @@ export default function DashboardPage({ onNavigate }) {
   }, [spareParts.length, currentUsername]);
 
   useEffect(() => {
-    if (!currentUsername || repairs.length === 0) return;
+    if (!currentUsername || visibleRepairs.length === 0) return;
     getWebSettings().then((settings) => {
       if (settings?.notifyPaymentOverdue === false) return;
       const now = Date.now();
       const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-      const overdueInvoices = repairs.filter((r) => {
+      const overdueInvoices = visibleRepairs.filter((r) => {
         if (!(Number(r.total_price) > 0)) return false;
         if (r.is_paid === 1 || r.is_paid === true) return false;
         if (r.payment_overdue_notified) return false;
@@ -1888,67 +1835,61 @@ export default function DashboardPage({ onNavigate }) {
         );
       });
     });
-  }, [repairs.length, currentUsername]);
-
-  // 🔔 ปรับแก้ส่วน Warranty Expiring Notification
-useEffect(() => {
-  if (!currentUsername || machines.length === 0) return;
-  getWebSettings().then((settings) => {
-    if (settings?.notifyWarranty === false) return;
-    const now = Date.now();
-
-    machines.forEach((m) => {
-      if (!m.warranty_start_date || !m.warranty_months) return;
-      const start = new Date(m.warranty_start_date);
-      if (isNaN(start.getTime())) return;
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + Number(m.warranty_months));
-      const daysLeft = Math.ceil((end.getTime() - now) / (1000 * 60 * 60 * 24));
-      const isNearExpiry = daysLeft <= 30;
-
-      // 1. ถ้าใกล้หมดหรือหมดแล้ว และยังไม่เคยแจ้งเตือน (หรือ warranty_notified != 1)
-      if (isNearExpiry && !m.warranty_notified && m.warranty_notified !== 1) {
-        const customer = customers.find((c) => c.username === m.customer_username);
-        const customerName = customer
-          ? [customer.name, customer.surname].filter(Boolean).join(" ") || customer.username
-          : m.customer_username || "ไม่ทราบลูกค้า";
-        const title = m.model_name || (m.label ? `เครื่องจักร ${m.label}` : `เครื่องจักร #${m.id}`);
-
-        // ส่งแจ้งเตือน
-        createNotification({
-          user_username: currentUsername,
-          role: "ADMIN",
-          title: `ประกันใกล้หมด: ${title}`,
-          message:
-            daysLeft < 0
-              ? `หมดประกันแล้ว (ลูกค้า ${customerName})`
-              : `เหลือประกันอีก ${daysLeft} วัน (ลูกค้า ${customerName})`,
-          type: "WARRANTY_EXPIRING",
-          target_id: m.id,
-        }).catch((err) => console.error("[DashboardPage] notify warranty failed:", err));
-
-        // ✅ บันทึก flag ลง Firebase ทันทีเพื่อไม่ให้วนส่งซ้ำอีกเวลารีเฟรช
-        updateRow("machines", m.id, { warranty_notified: 1 }).catch((err) =>
-          console.error("[DashboardPage] mark warranty_notified failed:", err)
-        );
-      } 
-      // 2. กรณีเครื่องจักรได้รับการต่อประกันใหม่แล้ว ค่อยล้าง flag ออก
-      else if (!isNearExpiry && (m.warranty_notified === 1 || m.warranty_notified === true)) {
-        updateRow("machines", m.id, { warranty_notified: 0 }).catch((err) =>
-          console.error("[DashboardPage] clear warranty_notified failed:", err)
-        );
-      }
-    });
-  });
-}, [machines, currentUsername, customers]);
+  }, [visibleRepairs.length, currentUsername]);
 
   useEffect(() => {
-    if (!currentUsername || repairs.length === 0) return;
+    if (!currentUsername || machines.length === 0) return;
+    getWebSettings().then((settings) => {
+      if (settings?.notifyWarranty === false) return;
+      const now = Date.now();
+
+      machines.forEach((m) => {
+        if (!m.warranty_start_date || !m.warranty_months) return;
+        const start = new Date(m.warranty_start_date);
+        if (isNaN(start.getTime())) return;
+        const end = new Date(start);
+        end.setMonth(end.getMonth() + Number(m.warranty_months));
+        const daysLeft = Math.ceil((end.getTime() - now) / (1000 * 60 * 60 * 24));
+        const isNearExpiry = daysLeft <= 30;
+
+        if (isNearExpiry && !m.warranty_notified && m.warranty_notified !== 1) {
+          const customer = customers.find((c) => c.username === m.customer_username);
+          const customerName = customer
+            ? [customer.name, customer.surname].filter(Boolean).join(" ") || customer.username
+            : m.customer_username || "ไม่ทราบลูกค้า";
+          const title = m.model_name || (m.label ? `เครื่องจักร ${m.label}` : `เครื่องจักร #${m.id}`);
+
+          createNotification({
+            user_username: currentUsername,
+            role: "ADMIN",
+            title: `ประกันใกล้หมด: ${title}`,
+            message:
+              daysLeft < 0
+                ? `หมดประกันแล้ว (ลูกค้า ${customerName})`
+                : `เหลือประกันอีก ${daysLeft} วัน (ลูกค้า ${customerName})`,
+            type: "WARRANTY_EXPIRING",
+            target_id: m.id,
+          }).catch((err) => console.error("[DashboardPage] notify warranty failed:", err));
+
+          updateRow("machines", m.id, { warranty_notified: 1 }).catch((err) =>
+            console.error("[DashboardPage] mark warranty_notified failed:", err)
+          );
+        } else if (!isNearExpiry && (m.warranty_notified === 1 || m.warranty_notified === true)) {
+          updateRow("machines", m.id, { warranty_notified: 0 }).catch((err) =>
+            console.error("[DashboardPage] clear warranty_notified failed:", err)
+          );
+        }
+      });
+    });
+  }, [machines, currentUsername, customers]);
+
+  useEffect(() => {
+    if (!currentUsername || visibleRepairs.length === 0) return;
     getWebSettings().then((settings) => {
       if (settings?.notifyStaleJob === false) return;
       const now = Date.now();
       const staleDaysMs = 5 * 24 * 60 * 60 * 1000;
-      const staleJobs = repairs.filter((r) => {
+      const staleJobs = visibleRepairs.filter((r) => {
         if (!isInProgressStatus(r.status, r)) return false;
         if (r.stale_notified) return false;
         const approvedDate = parseIsoDate(r.approved_at);
@@ -1968,13 +1909,10 @@ useEffect(() => {
         );
       });
     });
-  }, [repairs.length, currentUsername]);
+  }, [visibleRepairs.length, currentUsername]);
 
   useEffect(() => {
-    if (!currentUsername || repairs.length === 0) return;
-    // 🔴 [แก้ไข] ตัดตัวเลือกรูปแบบวันที่ (ที่เคยเป็นค่าส่วนตัวรายแอดมิน) ออก
-    // ทั้งระบบตามที่ขอ — formatDateBySetting ไม่ต้องรับค่าตั้งค่าอีกต่อไป เลย
-    // ไม่จำเป็นต้องดึง getPersonalSettings(currentUsername) มาแค่เพื่อเรื่องนี้
+    if (!currentUsername || visibleRepairs.length === 0) return;
     getWebSettings().then((settings) => {
       if (settings?.notifyDailyDigest === false) return;
       const today = new Date();
@@ -1983,7 +1921,7 @@ useEffect(() => {
       const isAfterDigestTime =
         today.getHours() > 17 || (today.getHours() === 17 && today.getMinutes() >= 30);
       if (!isAfterDigestTime) return;
-      const todayJobs = repairs.filter((r) => {
+      const todayJobs = visibleRepairs.filter((r) => {
         const d = parseIsoDate(r.created_at);
         return (
           d &&
@@ -1992,7 +1930,6 @@ useEffect(() => {
           d.getDate() === today.getDate()
         );
       });
-      //dpoint no dpoint
       const completedToday = todayJobs.filter((r) => getEffectiveRepairStatus(r) === "เสร็จสิ้น").length;
       createNotification({
         user_username: currentUsername,
@@ -2005,9 +1942,9 @@ useEffect(() => {
         console.error("[DashboardPage] save lastDigestDate failed:", err)
       );
     });
-  }, [repairs.length, currentUsername]);
+  }, [visibleRepairs.length, currentUsername]);
 
-  const statsRepairs = filterByRollingRange(repairs, statsRange);
+  const statsRepairs = filterByRollingRange(visibleRepairs, statsRange);
   const summary = computeDashboardSummary(statsRepairs);
   const problemCount = statsRepairs.filter((r) => getEffectiveRepairStatus(r) === "มีปัญหา").length;
 
@@ -2059,17 +1996,17 @@ useEffect(() => {
       </div>
 
       <div className="flex flex-wrap gap-5">
-        <RecentJobsTable repairs={repairs} onNavigate={onNavigate} onSelectJob={setSelectedJob} pageSize={dashboardPageSize} />
+        <RecentJobsTable repairs={visibleRepairs} onNavigate={onNavigate} onSelectJob={setSelectedJob} pageSize={dashboardPageSize} />
         <NotificationsCard notifications={notifications} currentUsername={currentUsername} onNavigate={onNavigate} />
       </div>
       <div className="flex flex-wrap gap-5">
         <WarrantyAlertCard machines={machines} customers={customers} onNavigate={onNavigate} />
-        <TechOnlineCard technicians={technicians} repairs={repairs} onSelectJob={setSelectedJob} />
+        <TechOnlineCard technicians={technicians} repairs={visibleRepairs} onSelectJob={setSelectedJob} />
       </div>
 
       <ReportZone
-        repairs={repairs}
-        partRequests={partRequests}
+        repairs={visibleRepairs}
+        partRequests={visiblePartRequests}
         spareParts={spareParts}
         technicians={technicians}
         onNavigate={onNavigate}
@@ -2080,6 +2017,7 @@ useEffect(() => {
           job={selectedJob}
           technicians={technicians}
           onClose={() => setSelectedJob(null)}
+          onNavigate={onNavigate}
         />
       ) : null}
     </div>

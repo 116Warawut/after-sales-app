@@ -85,17 +85,19 @@ bool isAppointmentTodayOrPast(String? dateStr) {
 
 /// คำนวณสถานะที่แท้จริงของงานซ่อมตามวันที่นัดหมายอัตโนมัติ
 String getEffectiveRepairStatus(Map<String, dynamic> repair) {
-  // ⭐ [แก้ไข] เดิมใช้ `as String?` ตรง ๆ ถ้า record ไหนเก็บ status เป็นชนิดอื่น
-  // (หรือเป็น num) จะ throw กลางทาง ทำให้ทั้งฟังก์ชันที่เรียกพังตามไปด้วย
   final rawStatusRaw = repair['status']?.toString().trim() ?? '';
   final rawStatus = rawStatusRaw.isEmpty ? 'รอจัดสรรช่าง' : rawStatusRaw;
 
+  // 🔴 ปรับให้ normalize คืนค่าคำว่า "มีปัญหา" เสมอเมื่อตรวจพบคำว่าปัญหา
   if (rawStatus == 'มีปัญหา' ||
       rawStatus.contains('ปัญหา') ||
       rawStatus == 'เสร็จแล้ว' ||
       rawStatus == 'เสร็จสิ้น' ||
       rawStatus.contains('ยกเลิก')) {
-    return rawStatus == 'เสร็จแล้ว' ? 'เสร็จสิ้น' : rawStatus;
+    if (rawStatus == 'เสร็จแล้ว' || rawStatus == 'เสร็จสิ้น') return 'เสร็จสิ้น';
+    if (rawStatus.contains('ยกเลิก')) return 'ยกเลิก';
+    if (rawStatus.contains('ปัญหา')) return 'มีปัญหา';
+    return rawStatus;
   }
 
   final tech = repair['technician_username']?.toString().trim();
@@ -107,15 +109,6 @@ String getEffectiveRepairStatus(Map<String, dynamic> repair) {
   switch (dateComp) {
     case DateComparison.future:
       return 'รอดำเนินการ';
-    // 🐛 [แก้บัค] เดิมถึงวันนัดปุ๊บ จะบังคับคืนค่า 'กำลังซ่อม' เสมอไม่ว่าสถานะ
-    // จริงจะเป็นอะไร ทำให้งานทุกงานของช่างในวันเดียวกัน (ไม่ว่าจะถึงคิวหรือยัง)
-    // ถูกอ่านว่า "กำลังซ่อม" เหมือนกันหมด — ระบบคิวงานในหน้าติดตามตำแหน่งลูกค้า
-    // ของช่าง (customer_tracking.dart) เลยเข้าใจผิดว่าทุกงานของวันนี้ "เริ่มลงมือ
-    // จริงแล้ว" (isPhysicallyStarted) และปล่อยให้ช่างดูตำแหน่งลูกค้าได้ทุกงาน
-    // พร้อมกันทั้งที่ยังไม่ถึงคิว — ตอนนี้คืนค่าตามสถานะจริงที่บันทึกไว้แทน
-    // ('กำลังเดินทาง'/'กำลังดำเนินการ'/'กำลังซ่อม' จาก markTechnicianTraveling()/
-    // updateRepairStatus() จริง ๆ) ถ้ายังไม่ถึงขั้นไหนเลยให้ถือว่ายัง "รอดำเนินการ"
-    // เหมือนงานที่ยังไม่ถึงวันนัด (ดู assignTechnicianToRepair() ที่แก้คู่กัน)
     case DateComparison.today:
       if (rawStatus == 'กำลังเดินทาง' ||
           rawStatus == 'กำลังดำเนินการ' ||
@@ -1133,13 +1126,16 @@ class DatabaseHelper {
     return (position: index + 1, total: sameDayJobs.length);
   }
 
-  /// 🆕 [ใหม่] ตั้งสถานะงานเป็น "กำลังเดินทาง" ให้ลูกค้าเห็น — เรียกตอนช่างเปิด
-  /// หน้าติดตามตำแหน่งลูกค้า (CustomerTrackingPage) แล้วผ่านเงื่อนไขวันนัด+คิวงาน
-  /// เรียบร้อย (คือกำลังจะออกเดินทางไปหาลูกค้าจริง ๆ) ไม่ทับสถานะที่ก้าวหน้าไป
-  /// ไกลกว่านี้แล้ว (กำลังดำเนินการ/เสร็จแล้ว/มีปัญหา/ยกเลิก) กันย้อนสถานะกลับ
+  /// 🆕 [แก้ไข] ตั้งสถานะงานเป็น "กำลังเดินทาง" — เดิมเรียกตอนช่างเปิดหน้าติดตาม
+  /// ตำแหน่งลูกค้าเฉย ๆ (แบบ side-effect เงียบ ๆ) ตอนนี้เรียกจากปุ่ม "เริ่มดำเนินการ"
+  /// ในหน้ารายละเอียดงานของช่างโดยตรง (job_detail.dart) และบังคับเช็คว่าต้องถึง
+  /// คิวงานนี้ก่อน (ตำแหน่งที่ 1 ของคิววันนั้น) เท่านั้นถึงจะเปลี่ยนสถานะได้ — โยน
+  /// StateError ถ้ายังไม่ถึงคิว เพื่อกันช่างข้ามคิวเปลี่ยนสถานะงานอื่นก่อนงานที่ควร
+  /// ทำก่อน ไม่ทับสถานะที่ก้าวหน้าไปไกลกว่านี้แล้ว (กำลังซ่อม/เสร็จแล้ว/มีปัญหา/
+  /// ยกเลิก) กันย้อนสถานะกลับ
   Future<void> markTechnicianTraveling(dynamic repairId) async {
     final repair = await getRepairById(repairId);
-    if (repair == null) return;
+    if (repair == null) throw StateError('ไม่พบงานซ่อมนี้');
     final rawStatus = repair['status']?.toString().trim() ?? '';
     if (rawStatus == 'กำลังเดินทาง') return; // ตั้งไว้แล้ว ไม่ต้องเขียนซ้ำ
     const pastStages = {
@@ -1150,7 +1146,47 @@ class DatabaseHelper {
       'มีปัญหา',
     };
     if (pastStages.contains(rawStatus) || rawStatus.contains('ยกเลิก')) return;
+
+    final queueInfo = await getQueueInfo(repairId);
+    if (queueInfo.position != 1) {
+      throw StateError(
+          'ยังไม่ถึงคิวงานนี้ (คิวที่ ${queueInfo.position} จาก ${queueInfo.total} งานของวันนี้)');
+    }
     await _updateById('repairs', repairId, {'status': 'กำลังเดินทาง'});
+  }
+
+  /// 🆕 [ใหม่] ช่างกดยืนยันว่า "ถึงที่หมายแล้ว" — เปลี่ยนสถานะจาก "กำลังเดินทาง"
+  /// เป็น "กำลังซ่อม" และแจ้งเตือนลูกค้าว่าช่างมาถึงแล้วกำลังเริ่มซ่อม อนุญาตให้
+  /// กดซ้ำได้เผื่อกดถี่/เน็ตช้าถ้าสถานะเดินหน้าไปเป็น "กำลังซ่อม" อยู่แล้ว (ถือว่า
+  /// สำเร็จ ไม่โยน error ซ้ำ) แต่โยน StateError ถ้างานยังไม่เคยถูกตั้งเป็น
+  /// "กำลังเดินทาง" มาก่อนเลย (เช่น กดข้ามขั้นตอน)
+  Future<void> markTechnicianArrived(dynamic repairId) async {
+    final repair = await getRepairById(repairId);
+    if (repair == null) throw StateError('ไม่พบงานซ่อมนี้');
+    final rawStatus = repair['status']?.toString().trim() ?? '';
+    if (rawStatus == 'กำลังซ่อม' || rawStatus == 'กำลังดำเนินการ') {
+      return; // ถึงขั้นตอนนี้ไปแล้ว ถือว่าสำเร็จ ไม่ต้องทำซ้ำ
+    }
+    if (rawStatus != 'กำลังเดินทาง') {
+      throw StateError('งานนี้ยังไม่อยู่ในสถานะ "กำลังเดินทาง"');
+    }
+
+    await _updateById('repairs', repairId, {'status': 'กำลังซ่อม'});
+
+    final customerUsername = repair['customer_username']?.toString();
+    final ticketNo = repair['ticketNo']?.toString() ?? '';
+    if (customerUsername != null && customerUsername.isNotEmpty) {
+      await createNotification({
+        'user_username': customerUsername,
+        'role': 'CUSTOMER',
+        'title': 'ช่างถึงที่หมายแล้ว',
+        'message':
+            'ช่างซ่อมถึงสถานที่ของท่านแล้ว งานซ่อม $ticketNo กำลังเริ่มดำเนินการซ่อม',
+        'type': 'TECH_ARRIVED',
+        'target_id': repairId,
+        'is_read': 0,
+      });
+    }
   }
 
   /// 🆕 [ใหม่] เช็คระยะห่างแบบเส้นตรง (Haversine ผ่าน Geolocator) ระหว่างตำแหน่ง
@@ -1206,15 +1242,25 @@ class DatabaseHelper {
     final all = await getAllRepairs();
     final unassigned = all.where((r) => r['status'] == 'รอจัดสรรช่าง').length;
     final scheduledPending = all.where((r) => r['status'] == 'รอดำเนินการ').length;
-    final inProgress = all.where((r) => r['status'] == 'กำลังซ่อม' || r['status'] == 'กำลังดำเนินการ').length;
+    final inProgress = all.where((r) => r['status'] == 'กำลังซ่อม' || r['status'] == 'กำลังดำเนินการ' || r['status'] == 'กำลังเดินทาง').length;
     final overdue = all.where((r) => r['status'] == 'เกินกำหนดเวลา').length;
     final completed = all
         .where((r) => r['status'] == 'เสร็จแล้ว' || r['status'] == 'เสร็จสิ้น')
         .length;
+    // 🔴 เพิ่มการนับจำนวนงานที่มีปัญหา
+    final problem = all
+        .where((r) => r['status'] == 'มีปัญหา' || (r['status']?.toString() ?? '').contains('ปัญหา'))
+        .length;
 
     double totalRevenue = 0.0;
     for (var r in all) {
-      if (r['is_paid'] == 1 || r['is_paid'] == true) {
+      // 🆕 [ใหม่] ไม่นับบิลที่ยกเว้นค่าใช้จ่ายเพราะเครื่องจักรอยู่ในประกัน
+      // (is_warranty_covered) รวมเป็นรายได้จริง แม้ระบบจะมาร์ก is_paid ให้
+      // อัตโนมัติตอนออกบิลก็ตาม (ดู updateRepairBill() ด้านบน) เพราะลูกค้าไม่ได้
+      // จ่ายเงินจริง
+      final isWarrantyCovered =
+          r['is_warranty_covered'] == true || r['is_warranty_covered'] == 1;
+      if (!isWarrantyCovered && (r['is_paid'] == 1 || r['is_paid'] == true)) {
         totalRevenue += toDoubleOrNull(r['total_price']) ?? 0;
       }
     }
@@ -1226,6 +1272,7 @@ class DatabaseHelper {
       'in_progress': inProgress,
       'overdue': overdue,
       'completed': completed,
+      'problem': problem, // 🔴 เพิ่มฟิลด์ problem
       'total_revenue': totalRevenue,
     };
   }
@@ -1396,11 +1443,19 @@ class DatabaseHelper {
     });
   }
 
+  // 🆕 [ใหม่] เพิ่มพารามิเตอร์ isWarrantyCovered — ถ้าเครื่องจักรยังอยู่ในประกัน
+  // ช่างยังกรอกราคา/รายการค่าใช้จ่ายในบิลได้ตามปกติ (เก็บไว้เป็นหลักฐาน/บันทึก
+  // ต้นทุนภายใน) แต่ลูกค้าไม่ต้องจ่ายเงินจริง — มาร์กบิลนี้เป็น "ชำระแล้ว" ทันที
+  // โดยไม่ต้องรอลูกค้าส่งสลิปโอนเงิน/แอดมินกดยืนยันแบบบิลปกติ แล้วแยกด้วยฟิลด์
+  // is_warranty_covered เพื่อไม่ให้ยอดนี้ถูกนับรวมเป็นรายได้จริงตอนสรุปที่
+  // getAdminDashboardSummary() ด้านบน และเพื่อให้หน้าจอฝั่งลูกค้า/แอดมินแสดงข้อความ
+  // "ไม่มีค่าใช้จ่ายเพราะมีประกัน" แทนปุ่มชำระเงิน/QR code ได้ถูกจุด
   Future<int> updateRepairBill(
     dynamic id, {
     required String billId,
     required double totalPrice,
     String? invoiceNo,
+    bool isWarrantyCovered = false,
   }) async {
     if (id == null || billId.trim().isEmpty || totalPrice < 0) {
       throw const FormatException('ข้อมูลใบแจ้งหนี้ไม่ถูกต้อง');
@@ -1409,14 +1464,20 @@ class DatabaseHelper {
       throw StateError('ไม่พบงานซ่อมสำหรับออกใบแจ้งหนี้');
     }
     final now = DateTime.now().toIso8601String();
-    return await _updateById('repairs', id, {
+    final values = <String, dynamic>{
       'bill_id': billId.trim(),
       'invoice_no': (invoiceNo?.trim().isNotEmpty ?? false)
           ? invoiceNo!.trim()
           : 'INV-${billId.trim()}',
       'invoice_date': now,
       'total_price': totalPrice,
-    });
+      'is_warranty_covered': isWarrantyCovered,
+    };
+    if (isWarrantyCovered) {
+      values['is_paid'] = 1;
+      values['receipt_no'] = 'WARRANTY-${billId.trim()}';
+    }
+    return await _updateById('repairs', id, values);
   }
 
   Future<int> markRepairPaid(dynamic id, {String? receiptNo}) async {

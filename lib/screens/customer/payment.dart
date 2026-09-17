@@ -18,6 +18,9 @@ class _PaymentPageState extends State<PaymentPage> {
   bool _loading = true;
   bool _isPaying = false;
   bool _paid = false;
+  // 🆕 [ใหม่] true = เครื่องจักรอยู่ในประกัน บิลนี้ไม่มีค่าใช้จ่ายจริง — ซ่อน
+  // การ์ดสลิปโอนเงิน/ปุ่มยืนยันชำระเงิน และเปลี่ยนป้ายสถานะ/ใบเสร็จให้ตรงความจริง
+  bool _isWarrantyCovered = false;
 
   String _ticketNo = '-';
   String _billId = '-';
@@ -51,6 +54,8 @@ class _PaymentPageState extends State<PaymentPage> {
           _billId = (repair['bill_id']?.toString()) ?? '-';
           _totalPrice = toDoubleOrNull(repair['total_price']) ?? 0;
           _paid = (toIntOrNull(repair['is_paid']) ?? 0) == 1 || repair['is_paid'] == true;
+          _isWarrantyCovered = repair['is_warranty_covered'] == true ||
+              repair['is_warranty_covered'] == 1;
           _adminUsername = (repair['admin_username']?.toString()) ?? '';
           final slip = repair['customer_payment_slip']?.toString();
           _paymentSlipUrl = (slip != null && slip.trim().isNotEmpty) ? slip : null;
@@ -222,20 +227,27 @@ class _PaymentPageState extends State<PaymentPage> {
               ),
             ),
             const SizedBox(height: 20),
-            const Icon(Icons.check_circle, color: Colors.green, size: 60),
+            Icon(
+              _isWarrantyCovered ? Icons.shield_outlined : Icons.check_circle,
+              color: Colors.green,
+              size: 60,
+            ),
             const SizedBox(height: 8),
             const Text('ใบเสร็จรับเงิน',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const Text('รายการชำระเงินสมบูรณ์',
-                style: TextStyle(color: Colors.grey)),
+            Text(
+              _isWarrantyCovered ? 'ไม่มีค่าใช้จ่าย เนื่องจากอยู่ในประกัน' : 'รายการชำระเงินสมบูรณ์',
+              style: const TextStyle(color: Colors.grey),
+            ),
             const Divider(height: 32),
             _BillDetailRow(label: 'เลขแจ้งซ่อม', value: _ticketNo),
             const SizedBox(height: 8),
             _BillDetailRow(label: 'รหัสบิล', value: _billId),
             const SizedBox(height: 8),
-            const _BillDetailRow(
+            _BillDetailRow(
               label: 'ช่องทางชำระ',
-              value: 'พร้อมเพย์ (PromptPay)',
+              value:
+                  _isWarrantyCovered ? 'ไม่มีค่าใช้จ่าย (อยู่ในประกัน)' : 'พร้อมเพย์ (PromptPay)',
             ),
             const SizedBox(height: 8),
             _BillDetailRow(
@@ -304,8 +316,33 @@ class _PaymentPageState extends State<PaymentPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // แสดงสถานะชำระเงินเรียบร้อย
-                    if (_paid) ...[
+                    // แสดงสถานะชำระเงินเรียบร้อย / ไม่มีค่าใช้จ่ายเพราะประกัน
+                    if (_isWarrantyCovered) ...[
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: AppColors.greenBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.greenText),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.shield_outlined, color: AppColors.greenText),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'บิลนี้ไม่มีค่าใช้จ่าย เนื่องจากเครื่องจักรอยู่ในประกัน',
+                                style: TextStyle(
+                                  color: AppColors.greenText,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else if (_paid) ...[
                       Container(
                         padding: const EdgeInsets.all(16),
                         margin: const EdgeInsets.only(bottom: 16),
@@ -336,7 +373,9 @@ class _PaymentPageState extends State<PaymentPage> {
                     // generate QR Code พร้อมเพย์ปลอมขึ้นมาเอง ซึ่งไม่มีประโยชน์ตอน
                     // แอดมินเปิดดูจาก "ประวัติการออกบิล" (ไม่ใช่หน้าจ่ายเงินจริง)
                     // เปลี่ยนมาโชว์สลิปที่ลูกค้าอัปโหลดไว้แทน เพื่อให้เห็นหลักฐานจริง
-                    if (_totalPrice > 0) ...[
+                    // 🆕 [ใหม่] ไม่ต้องโชว์การ์ดสลิปโอนเงินเลยถ้าเป็นบิลประกัน —
+                    // ไม่มีการโอนเงินจริงให้ตรวจสอบ
+                    if (_totalPrice > 0 && !_isWarrantyCovered) ...[
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
@@ -427,17 +466,21 @@ class _PaymentPageState extends State<PaymentPage> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: _paid
+                                  color: _isWarrantyCovered
                                       ? AppColors.greenBg
-                                      : AppColors.yellowBg,
+                                      : (_paid
+                                          ? AppColors.greenBg
+                                          : AppColors.yellowBg),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text(
-                                  _paid ? 'ชำระเงินแล้ว' : 'รอชำระเงิน',
+                                  _isWarrantyCovered
+                                      ? 'ไม่มีค่าใช้จ่าย (ประกัน)'
+                                      : (_paid ? 'ชำระเงินแล้ว' : 'รอชำระเงิน'),
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
-                                    color: _paid
+                                    color: (_isWarrantyCovered || _paid)
                                         ? AppColors.greenText
                                         : AppColors.yellowText,
                                   ),

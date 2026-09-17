@@ -304,7 +304,9 @@ class _NextJobPageState extends State<NextJobPage> {
         final status = (r['status']?.toString()) ?? '';
         if (status.contains('เสร็จ')) {
           doneToday++;
-        } else if (status.contains('กำลังดำเนินการ')) {
+        } else if (status.contains('กำลังซ่อม') ||
+            status.contains('กำลังดำเนินการ') ||
+            status.contains('กำลังเดินทาง')) {
           inProgressToday++;
         }
 
@@ -449,7 +451,7 @@ class _NextJobPageState extends State<NextJobPage> {
               fg: AppColors.blueText,
             ),
             StatBox(
-              label: 'กำลังดำเนินการ',
+              label: 'กำลังซ่อม',
               value: _inProgressToday,
               icon: Icons.autorenew,
               bg: AppColors.yellowBg,

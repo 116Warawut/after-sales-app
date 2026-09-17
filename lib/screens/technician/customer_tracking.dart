@@ -167,8 +167,15 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
         return;
       }
       // 🆕 [ใหม่] ผ่านทั้งเงื่อนไขวันนัดและคิวงานแล้ว = ช่างกำลังจะออกเดินทางไป
-      // หาลูกค้าจริง ๆ — ตั้งสถานะ "กำลังเดินทาง" ให้ลูกค้าเห็นด้วย
-      await db.DatabaseHelper.instance.markTechnicianTraveling(repairId);
+      // หาลูกค้าจริง ๆ — ตั้งสถานะ "กำลังเดินทาง" ให้ลูกค้าเห็นด้วย (เป็นแค่
+      // ส่วนเสริม ไม่ใช่ทางหลักอีกต่อไป — ทางหลักคือปุ่ม "เริ่มดำเนินการ" ใน
+      // job_detail.dart ที่บังคับเช็คคิวเช่นกัน) ครอบ try/catch ไว้เผื่อคิวขยับ
+      // พอดีตอนนี้ (เช่น markTechnicianTraveling โยน error เพราะไม่ใช่คิวที่ 1
+      // แล้วจริง ๆ) ไม่ให้ทั้งหน้าแผนที่พังไปด้วยจาก error ที่ไม่ใช่สาระสำคัญ
+      // ของหน้านี้
+      try {
+        await db.DatabaseHelper.instance.markTechnicianTraveling(repairId);
+      } catch (_) {}
     }
 
     // 2. ดึงข้อมูลลูกค้าเจ้าของงาน

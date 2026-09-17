@@ -42,30 +42,95 @@ async function applyPartRequestDecision(request, status, parts) {
   }).catch((err) => console.error("[SparePartsPage] log activity failed:", err));
 }
 
-// 🆕 [ใหม่] แถวสรุป 1 งานซ่อมในการ์ด "รายการเบิกอะไหล่ที่รออนุมัติ" — กดแล้ว
-// เปิด JobApprovalModal ไปดู/อนุมัติรายการอะไหล่ของงานซ่อมนี้ทั้งหมด
-function PendingJobGroupRow({ repairId, items, repairInfo, onOpen }) {
+// 🆕 [ใหม่] ป้ายสถานะคำขอเบิกอะไหล่ ใช้ทั้งในประวัติการเบิกของ PartDetailModal
+// และตอนแสดงกลุ่มคำขอที่ไม่ได้กรองเฉพาะ "รอดำเนินการ" อีกต่อไป (การ์ด "รายการ
+// เบิกอะไหล่ทั้งหมด" ที่เพิ่มใหม่) — สีเดียวกับปุ่มอนุมัติ/ปฏิเสธ (เขียว=อนุมัติ,
+// แดง=ปฏิเสธ, ส้ม=รอดำเนินการ) ให้ดูสอดคล้องกันทั้งหน้า
+const REQUEST_STATUS_BADGE = {
+  "อนุมัติแล้ว": "bg-emerald-50 text-emerald-600",
+  "ปฏิเสธ": "bg-red-50 text-red-600",
+  "รอดำเนินการ": "bg-orange-50 text-orange-600",
+};
+
+// 🐛 [แก้ไข] BUG: จุดที่ต้องหา repairInfo จาก repairId (ของกลุ่มคำขอเบิก
+// อะไหล่) เดิมเทียบแค่ String(r.record_id) === String(repairId) เท่านั้น —
+// เจอว่าแทบทุกกลุ่มหา repairInfo ไม่เจอเลยสักรายการ (ตัวหัวข้อเลยตกไปใช้
+// fallback "#repairId" เฉยๆ แทน ticketNo จริง, ไม่โชว่ชื่อลูกค้าที่ควรมี, และ
+// ปุ่ม "ลบงานซ่อม" ที่เพิ่งเพิ่มก็เลยไม่ขึ้นเลยสักแถวเพราะเช็ค repairInfo?.id
+// ไว้) สาเหตุคือ repair_id ที่ฝั่งแอปมือถือบันทึกไว้ใน part_requests บางที
+// อ้างอิงด้วยคีย์จริงใน Firebase (r.id) ไม่ใช่เลข record_id เพียงอย่างเดียว —
+// เปลี่ยนมาเทียบทั้งสองแบบ (ลองจับคู่กับ record_id ก่อน ถ้าไม่เจอค่อยลองจับคู่
+// กับ id) ให้ครอบคลุมทั้งสองกรณี
+function findRepairInfo(repairs, repairId) {
+  return repairs.find(
+    (r) => String(r.record_id) === String(repairId) || String(r.id) === String(repairId)
+  );
+}
+
+// 🆕 [ใหม่] แถวสรุป 1 งานซ่อม ใช้ร่วมกันทั้งการ์ด "รอเบิก" (ทุกใบในกลุ่มเป็น
+// "รอดำเนินการ" เสมออยู่แล้ว) และการ์ด "ทั้งหมด" ที่เพิ่มใหม่ (สถานะในกลุ่ม
+// อาจปนกันได้ — อนุมัติไปแล้วบ้าง ปฏิเสธไปแล้วบ้าง ยังรอบ้าง) ป้ายสถานะเลย
+// ต้องคำนวณจากรายการจริงในกลุ่มแทนที่จะ hardcode "รออนุมัติ" ไว้ตรงๆ เหมือนเดิม
+function groupStatusBadge(items) {
+  const statuses = new Set(items.map((r) => r.status));
+  if (statuses.size === 1) {
+    const s = [...statuses][0];
+    return { label: s || "-", className: REQUEST_STATUS_BADGE[s] || "bg-slate-100 text-slate-500" };
+  }
+  const pendingCount = items.filter((r) => r.status === "รอดำเนินการ").length;
+  if (pendingCount > 0) {
+    return { label: `รออนุมัติ ${pendingCount} รายการ`, className: "bg-orange-50 text-orange-600" };
+  }
+  return { label: "หลายสถานะ", className: "bg-slate-100 text-slate-500" };
+}
+
+// 🔴 [แก้ไข] รื้อใหม่ตามที่ขอ — เดิมปุ่มลบผูกกับ "ลบงานซ่อม" ซึ่งต้องหา
+// repairInfo (ข้อมูลงานซ่อมจริง) มาก่อนถึงจะรู้ว่าจะลบ record ไหนใน collection
+// "repairs" แต่การจับคู่ repair_id ↔ repairs ยังมีบั๊กอยู่ (เพื่อนกำลังแก้อีก
+// ทาง) ทำให้หา repairInfo ไม่เจอแทบทุกแถว ปุ่มเลยไม่โผล่มาให้กดเลย —
+// เปลี่ยนแนวทางใหม่ทั้งหมด: ปุ่มนี้ลบ "รายการคำขอเบิกอะไหล่ทั้งหมดของกลุ่มนี้"
+// (part_requests ที่รวมกันอยู่ในแถวนี้) โดยตรงแทน ไม่ต้องพึ่ง repairInfo เลย
+// เพราะ items ที่ส่งเข้ามาแต่ละชิ้นมี id ของตัวเองอยู่แล้วจาก part_requests
+// ตรงๆ (ไม่ผ่านการจับคู่ใดๆ) รับประกันว่ากดได้ผลจริงทุกแถว รวมถึงแถว "#-" ที่
+// หา repairInfo ไม่เจอด้วย (ให้ลบทิ้งเพื่อเคลียร์ข้อมูลเก่าที่ไม่มีเจ้าของแล้ว)
+function JobGroupRow({ repairId, items, repairInfo, onOpen, onDelete }) {
   const jobLabel = repairInfo?.ticketNo || `#${repairId}`;
   const technicianNames = [...new Set(items.map((r) => r.technician_username).filter(Boolean))];
+  const badge = groupStatusBadge(items);
   return (
-    <button
-      onClick={onOpen}
-      className="w-full flex items-center justify-between gap-3 py-3 border-b border-slate-50 last:border-0 text-left hover:bg-slate-50 rounded-lg px-2 -mx-2 transition-colors"
-    >
-      <div className="min-w-0">
+    // 🔴 [แก้ไข] เดิมทั้งแถวเป็น <button> เดียวกดได้ทั้งแถว — เพิ่มปุ่ม "ลบ
+    // งานซ่อม" เข้ามาตามที่ขอ ปุ่มซ้อนอยู่ในปุ่มไม่ได้ (ผิดกฎ HTML กดแล้วจะงง)
+    // เลยเปลี่ยนแถวนอกสุดเป็น <div> ธรรมดา แล้วแยกส่วนข้อความ (กดเพื่อดู
+    // รายละเอียด) กับปุ่มลบออกเป็นปุ่มคนละอันวางเคียงกันแทน
+    <div className="w-full flex items-center justify-between gap-3 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded-lg px-2 -mx-2 transition-colors">
+      <button onClick={onOpen} className="min-w-0 flex-1 text-left">
         <p className="text-sm font-medium text-slate-800">
           รายการเบิกอะไหล่ของ {jobLabel}
           {repairInfo?.customer_username ? ` · ${repairInfo.customer_username}` : ""}
         </p>
         <p className="text-xs text-slate-500 mt-0.5">
-          {items.length} รายการรออนุมัติ
+          {items.length} รายการ
           {technicianNames.length ? ` · ช่าง ${technicianNames.join(", ")}` : ""}
         </p>
+      </button>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className={`text-[11px] font-medium px-2.5 py-1 rounded-full ${badge.className}`}>
+          {badge.label}
+        </span>
+        {onDelete ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete({ repairId, items, jobLabel });
+            }}
+            title="ลบรายการเบิกอะไหล่ของงานนี้ทั้งหมด"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 bg-red-500/10 hover:text-red-300 hover:bg-red-500/20 transition-colors"
+          >
+            <Trash2 size={14} />
+          </button>
+        ) : null}
       </div>
-      <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-orange-50 text-orange-600 shrink-0">
-        รออนุมัติ
-      </span>
-    </button>
+    </div>
   );
 }
 
@@ -75,15 +140,24 @@ function PendingJobGroupRow({ repairId, items, repairInfo, onOpen }) {
 // pendingRequests ที่กรองด้วย repair_id นี้แล้ว ณ ตอน render ล่าสุด (อัปเดต
 // สดตาม realtime listener ของหน้าหลัก) ปิด modal ให้อัตโนมัติเมื่อทำครบทุก
 // รายการแล้ว (items กลายเป็น [] เพราะทุกใบเปลี่ยนสถานะพ้นจาก "รอดำเนินการ")
+// 🔴 [แก้ไข] เดิม modal นี้เปิดได้แค่จากการ์ด "รอเบิก" เท่านั้น (ทุกใบในกลุ่ม
+// เป็น "รอดำเนินการ" เสมอ) ตอนนี้เปิดได้จากการ์ด "ทั้งหมด" ด้วย ซึ่งกลุ่มอาจมี
+// ใบที่อนุมัติ/ปฏิเสธไปแล้วปนอยู่ — ถ้าปล่อยให้กดปุ่ม "อนุมัติ" ซ้ำกับใบที่
+// อนุมัติไปแล้ว จะตัดสต๊อกซ้ำอีกรอบ (บั๊ก) เลยต้องโชว่ปุ่มอนุมัติ/ปฏิเสธเฉพาะ
+// ใบที่ยัง "รอดำเนินการ" จริงๆ เท่านั้น ใบที่ตัดสินใจไปแล้วโชว่แค่ป้ายสถานะ
+// เฉยๆ (กดอะไรไม่ได้อีก) ปุ่ม "อนุมัติทั้งหมด/ยกเลิกทั้งหมด" ด้านล่างก็เหลือ
+// แค่ทำกับใบที่ยังรออยู่เท่านั้นเช่นกัน ถ้าไม่มีใบไหนรออยู่เลยก็ซ่อนปุ่มสองอันนี้
 function JobApprovalModal({ repairId, items, repairInfo, parts, onClose }) {
   const [busyId, setBusyId] = useState(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState("");
+  // 🆕 [ใหม่] ลบคำขอเบิกอะไหล่ทีละรายการ (ตามที่ขอ — แยกจากปุ่ม "ลบงานซ่อม"
+  // ทั้งใบที่ทำไปก่อนหน้านี้ อันนี้ลบแค่รายการอะไหล่ 1 บรรทัดในงานนี้ ลบได้ทุก
+  // สถานะไม่ว่าจะรออยู่/อนุมัติ/ปฏิเสธไปแล้วก็ตาม)
+  const [deleteRequestTarget, setDeleteRequestTarget] = useState(null);
+  const [deletingRequest, setDeletingRequest] = useState(false);
 
-  useEffect(() => {
-    if (items.length === 0) onClose();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length]);
+  const pendingItems = items.filter((r) => r.status === "รอดำเนินการ");
 
   async function handleOne(request, status) {
     setBusyId(request.id);
@@ -106,7 +180,7 @@ function JobApprovalModal({ repairId, items, repairInfo, parts, onClose }) {
       // อ่าน-แล้ว-เขียนสต๊อกของอะไหล่ทับซ้อนกันได้ (อะไหล่ชิ้นเดียวกันถูกขอ
       // เบิกหลายใบในงานเดียวกัน) ถ้ายิงพร้อมกันจะเจอ race condition ตัดสต๊อก
       // ผิดจำนวนได้
-      for (const request of items) {
+      for (const request of pendingItems) {
         await applyPartRequestDecision(request, status, parts);
       }
     } catch (err) {
@@ -117,10 +191,25 @@ function JobApprovalModal({ repairId, items, repairInfo, parts, onClose }) {
     }
   }
 
+  async function handleDeleteRequest() {
+    if (!deleteRequestTarget) return;
+    setDeletingRequest(true);
+    try {
+      await deleteRow("part_requests", deleteRequestTarget.id);
+      setDeleteRequestTarget(null);
+    } catch (err) {
+      console.error("[SparePartsPage] delete part request failed:", err);
+      setError("ลบรายการไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setDeletingRequest(false);
+    }
+  }
+
   const jobLabel = repairInfo?.ticketNo || `#${repairId}`;
   const anyBusy = busyId !== null || bulkBusy;
 
   return (
+    <>
     <Modal
       title={`รายการเบิกอะไหล่ของ ${jobLabel}`}
       onClose={onClose}
@@ -130,20 +219,24 @@ function JobApprovalModal({ repairId, items, repairInfo, parts, onClose }) {
           <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-50">
             ปิด
           </button>
-          <button
-            onClick={() => handleAll("ปฏิเสธ")}
-            disabled={anyBusy}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 disabled:opacity-50"
-          >
-            <X size={14} /> ยกเลิกทั้งหมด
-          </button>
-          <button
-            onClick={() => handleAll("อนุมัติแล้ว")}
-            disabled={anyBusy}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50"
-          >
-            <Check size={14} /> อนุมัติทั้งหมด
-          </button>
+          {pendingItems.length > 0 ? (
+            <>
+              <button
+                onClick={() => handleAll("ปฏิเสธ")}
+                disabled={anyBusy}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 disabled:opacity-50"
+              >
+                <X size={14} /> ยกเลิกทั้งหมด
+              </button>
+              <button
+                onClick={() => handleAll("อนุมัติแล้ว")}
+                disabled={anyBusy}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50"
+              >
+                <Check size={14} /> อนุมัติทั้งหมด
+              </button>
+            </>
+          ) : null}
         </>
       }
     >
@@ -166,38 +259,90 @@ function JobApprovalModal({ repairId, items, repairInfo, parts, onClose }) {
               {r.note ? <p className="text-xs text-slate-400 mt-0.5">หมายเหตุ: {r.note}</p> : null}
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {r.status === "รอดำเนินการ" ? (
+                <>
+                  <button
+                    onClick={() => handleOne(r, "อนุมัติแล้ว")}
+                    disabled={anyBusy}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    <Check size={13} /> อนุมัติ
+                  </button>
+                  <button
+                    onClick={() => handleOne(r, "ปฏิเสธ")}
+                    disabled={anyBusy}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-medium hover:bg-red-100 disabled:opacity-50"
+                  >
+                    <X size={13} /> ปฏิเสธ
+                  </button>
+                </>
+              ) : (
+                <span className={`text-[11px] font-medium px-2.5 py-1 rounded-full ${REQUEST_STATUS_BADGE[r.status] || "bg-slate-100 text-slate-500"}`}>
+                  {r.status || "-"}
+                </span>
+              )}
+              {/* 🆕 [ใหม่] ปุ่มลบรายการนี้ทีละบรรทัด — โชว่ทุกแถวไม่ว่าสถานะไหน
+                  (แยกจากปุ่มอนุมัติ/ปฏิเสธ/ป้ายสถานะด้านซ้าย) ตามที่ขอ อยู่ใน
+                  กลุ่ม flex เดียวกันกับปุ่ม/ป้ายด้านบน จะได้ติดกัน ไม่ถูก
+                  justify-between ของแถวนอกดันให้ห่างออกไปสุดขอบ */}
               <button
-                onClick={() => handleOne(r, "อนุมัติแล้ว")}
+                onClick={() => setDeleteRequestTarget(r)}
                 disabled={anyBusy}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium hover:bg-emerald-100 disabled:opacity-50"
+                title="ลบรายการนี้"
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 bg-red-500/10 hover:text-red-300 hover:bg-red-500/20 transition-colors shrink-0 disabled:opacity-50"
               >
-                <Check size={13} /> อนุมัติ
-              </button>
-              <button
-                onClick={() => handleOne(r, "ปฏิเสธ")}
-                disabled={anyBusy}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-medium hover:bg-red-100 disabled:opacity-50"
-              >
-                <X size={13} /> ปฏิเสธ
+                <Trash2 size={13} />
               </button>
             </div>
           </div>
         ))}
       </div>
     </Modal>
+
+    {deleteRequestTarget ? (
+      <ConfirmDialog
+        message={`ต้องการลบรายการเบิก "${deleteRequestTarget.part_name || "-"}" (ช่าง ${deleteRequestTarget.technician_username || "-"} ขอเบิก ${deleteRequestTarget.quantity ?? 0} ชิ้น) ใช่หรือไม่? การลบนี้ไม่สามารถกู้คืนได้`}
+        onConfirm={handleDeleteRequest}
+        onCancel={() => setDeleteRequestTarget(null)}
+        busy={deletingRequest}
+      />
+    ) : null}
+    </>
   );
 }
 
-const EMPTY_FORM = { part_code: "", part_name: "", price: "", stock: "", photo_url: "" };
+// 🆕 [ใหม่] Popup "ดูรายการทั้งหมด" ใช้ร่วมกันทั้งการ์ด "รอเบิก" และ "ทั้งหมด"
+// (ตามที่ขอให้หน้าตาเหมือนกัน) — แค่ส่ง groups/title ต่างกันเข้ามา แบ่งหน้าด้วย
+// จำนวนรายการต่อหน้าที่ตั้งไว้ในหน้าตั้งค่า (itemsPerPagePartRequests) กดแถว
+// ไหนก็เปิด JobApprovalModal ของงานนั้นต่อได้เลยเหมือนในหน้าหลัก
+function AllGroupsListModal({ title, groups, pageSize, repairs, onOpenGroup, onDeleteJob, onClose }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(groups.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paged = groups.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-// 🆕 [ใหม่] ป้ายสถานะคำขอเบิกอะไหล่ ใช้ในประวัติการเบิกของ PartDetailModal —
-// สีเดียวกับปุ่มอนุมัติ/ปฏิเสธใน PendingRequestRow ด้านบน (เขียว=อนุมัติ,
-// แดง=ปฏิเสธ, ส้ม=รอดำเนินการ) ให้ดูสอดคล้องกันทั้งหน้า
-const REQUEST_STATUS_BADGE = {
-  "อนุมัติแล้ว": "bg-emerald-50 text-emerald-600",
-  "ปฏิเสธ": "bg-red-50 text-red-600",
-  "รอดำเนินการ": "bg-orange-50 text-orange-600",
-};
+  return (
+    <Modal title={title} onClose={onClose} wide>
+      {groups.length === 0 ? (
+        <p className="text-xs text-slate-400 text-center py-6">ยังไม่มีรายการ</p>
+      ) : (
+        <div>
+          {paged.map((g) => (
+            <JobGroupRow
+              key={g.repairId}
+              repairId={g.repairId}
+              items={g.items}
+              repairInfo={findRepairInfo(repairs, g.repairId)}
+              onOpen={() => onOpenGroup(g.repairId)}
+              onDelete={onDeleteJob}
+            />
+          ))}
+        </div>
+      )}
+      <Pagination page={currentPage} totalPages={totalPages} onChange={setPage} totalItems={groups.length} pageSize={pageSize} />
+    </Modal>
+  );
+}
 
 // 🆕 [ใหม่] Modal แสดงรายละเอียดอะไหล่ 1 ชิ้น — เปิดจากการกดที่แถวในตาราง
 // (ไม่ใช่แค่ปุ่มแก้ไข/ลบ) โชว์รูปใหญ่ขึ้น + ข้อมูลครบ + ประวัติการเบิกล่าสุด
@@ -301,6 +446,8 @@ function PartDetailModal({ part, requests, onClose, onEdit, onDelete }) {
   );
 }
 
+const EMPTY_FORM = { part_code: "", part_name: "", price: "", stock: "", photo_url: "" };
+
 export default function SparePartsPage({ initialQuery }) {
   const [query, setQuery] = useState(initialQuery || "");
   const { data: parts, loading: loadingParts } = useDbList("spare_parts");
@@ -322,9 +469,21 @@ export default function SparePartsPage({ initialQuery }) {
   // 🆕 [ใหม่] เลข repair_id ของกลุ่มที่กำลังเปิดดู/อนุมัติอยู่ใน
   // JobApprovalModal (null = ปิดอยู่)
   const [viewingGroupId, setViewingGroupId] = useState(null);
+  // 🆕 [ใหม่] popup "ดูรายการทั้งหมด" — "pending" = จากการ์ดรอเบิก, "all" =
+  // จากการ์ดทั้งหมด, null = ปิดอยู่ (ใช้ popup เดียวกันสลับข้อมูลตามโหมด)
+  const [viewAllMode, setViewAllMode] = useState(null);
+  // 🔴 [แก้ไข] เปลี่ยนจาก "ลบงานซ่อม" (ต้องพึ่ง repairInfo ที่จับคู่ไม่ติด) มา
+  // เป็น "ลบคำขอเบิกอะไหล่ทั้งกลุ่มของงานนี้" แทน — เก็บ { repairId, items,
+  // jobLabel } ของกลุ่มที่จะลบไว้ตรงนี้ (ไม่ต้องมี repairInfo เลย)
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState(null);
+  const [deletingGroup, setDeletingGroup] = useState(false);
   // 🆕 จำนวนรายการต่อหน้า อ่านมาจากหน้าตั้งค่า > ระบบทั่วไป (ของหน้า "อะไหล่")
   const { settings: webSettings } = useWebSettings();
   const pageSize = Number(webSettings.itemsPerPageParts) || 20;
+  // 🆕 [ใหม่] จำนวนรายการต่อหน้าของ popup "ดูรายการทั้งหมด" (คำขอเบิกอะไหล่)
+  // แยกต่างหากจากจำนวนรายการต่อหน้าของตารางคลังอะไหล่ด้านบน — ตั้งค่าได้ที่
+  // หน้าตั้งค่า > จำนวนรายการต่อหน้า > "รายการเบิกอะไหล่ (Pop-up ดูทั้งหมด)"
+  const requestsPageSize = Number(webSettings.itemsPerPagePartRequests) || 20;
   const [page, setPage] = useState(1);
 
   // 🔴 [ใหม่] รองรับ initialQuery ที่ส่งมาจากลิงก์ "ไปที่คลังอะไหล่" ใน popup
@@ -349,24 +508,30 @@ export default function SparePartsPage({ initialQuery }) {
   const currentPage = Math.min(page, totalPages);
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  const pendingRequests = [...partRequests]
-    .filter((r) => r.status === "รอดำเนินการ")
-    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-
-  // 🔴 [แก้ไข] ตามที่ขอ — จัดกลุ่มคำขอที่รออนุมัติตาม repair_id (เลขแจ้งซ่อม)
-  // แทนที่จะเรียงเป็น list แบนราบทีละใบเหมือนเดิม ใช้ Map เก็บลำดับการเจอกลุ่ม
-  // ครั้งแรกไว้ (ซึ่งเรียงตาม created_at ล่าสุดอยู่แล้วจาก pendingRequests
-  // ด้านบน) แล้วค่อยแปลงเป็น array ตอนท้าย
-  const pendingGroups = (() => {
+  // 🆕 [ใหม่] จัดกลุ่มคำขอเบิกอะไหล่ตาม repair_id (เลขแจ้งซ่อม) — ใช้ฟังก์ชัน
+  // เดียวกันทั้งสร้างกลุ่ม "รอเบิก" (กรองเฉพาะรอดำเนินการก่อน) และกลุ่ม
+  // "ทั้งหมด" (ไม่กรองสถานะเลย) ตามที่ขอให้มีทั้ง 2 กล่องนี้ในหน้าเดียวกัน
+  function groupByRepairId(requests) {
     const map = new Map();
-    pendingRequests.forEach((r) => {
+    requests.forEach((r) => {
       const key = r.repair_id ?? "-";
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(r);
     });
     return Array.from(map.entries()).map(([repairId, items]) => ({ repairId, items }));
-  })();
-  const viewingGroup = pendingGroups.find((g) => String(g.repairId) === String(viewingGroupId));
+  }
+
+  const pendingRequests = [...partRequests]
+    .filter((r) => r.status === "รอดำเนินการ")
+    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  const allRequestsSorted = [...partRequests].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+  const pendingGroups = groupByRepairId(pendingRequests);
+  const allGroups = groupByRepairId(allRequestsSorted);
+  // 🔴 [แก้ไข] กลุ่มที่กำลังเปิดดูอาจถูกเปิดมาจากการ์ด "ทั้งหมด" ก็ได้ (มีใบที่
+  // ตัดสินใจไปแล้วปนอยู่ ไม่ได้อยู่ใน pendingGroups) เลยต้องหาจาก allGroups
+  // (ชุดใหญ่กว่า ครอบคลุมทุกกรณี) แทนที่จะหาจาก pendingGroups อย่างเดียวเหมือนเดิม
+  const viewingGroup = allGroups.find((g) => String(g.repairId) === String(viewingGroupId));
 
   function openAdd() {
     setForm(EMPTY_FORM);
@@ -436,30 +601,112 @@ export default function SparePartsPage({ initialQuery }) {
     }
   }
 
+  // 🔴 [แก้ไข] รื้อใหม่ตามที่ขอ — เดิมลบ "งานซ่อม" ทั้งใบ (ต้องรู้คีย์จริงของ
+  // repairs record ซึ่งมาจาก repairInfo ที่จับคู่ไม่ติดแทบทุกครั้ง ปุ่มเลย
+  // กดไม่ได้ผลจริง) เปลี่ยนมาลบ "คำขอเบิกอะไหล่ทุกใบของกลุ่มนี้" (part_requests)
+  // โดยตรงแทน — ใช้ items ที่มาจาก useDbList("part_requests") ตรงๆ อยู่แล้ว
+  // (แต่ละใบมี id ของตัวเองชัดเจน ไม่ต้องพึ่งการจับคู่ใดๆ) รับประกันว่าลบได้
+  // จริงทุกแถว รวมถึงแถว "#-" ที่หา repairInfo ไม่เจอด้วย (ลบเพื่อเคลียร์
+  // ข้อมูลเก่าที่ไม่มีเจ้าของแล้วออกไปเลย)
+  async function handleDeleteGroup() {
+    if (!deleteGroupTarget?.items?.length) {
+      setDeleteGroupTarget(null);
+      return;
+    }
+    setDeletingGroup(true);
+    try {
+      // 🔴 ลบทีละใบตามลำดับ (ไม่ใช่ Promise.all พร้อมกัน) ให้สอดคล้องกับแนวทาง
+      // เดียวกับตอนอนุมัติ/ปฏิเสธทั้งหมดด้านบน กันปัญหาเขียนพร้อมกันชนกัน
+      for (const item of deleteGroupTarget.items) {
+        await deleteRow("part_requests", item.id);
+      }
+      const admin = getSessionAdmin();
+      logActivity({
+        adminUsername: admin?.username,
+        adminName: admin?.admin_name,
+        action: "ลบรายการเบิกอะไหล่ทั้งกลุ่ม",
+        target: `${deleteGroupTarget.jobLabel} (${deleteGroupTarget.items.length} รายการ)`,
+      }).catch((err) => console.error("[SparePartsPage] log activity failed:", err));
+      setDeleteGroupTarget(null);
+    } catch (err) {
+      console.error("[SparePartsPage] delete group failed:", err);
+    } finally {
+      setDeletingGroup(false);
+    }
+  }
+
   return (
     <div>
       {/* 🔴 [แก้ไข] เอาหัวข้อ "อะไหล่" ออก เพราะซ้ำกับ Header บนสุด — ปุ่มเพิ่ม
-          อะไหล่ใหม่ย้ายไปอยู่คู่กับช่องค้นหาแทน (ในการ์ดตารางด้านล่าง) */}
-      <Card className="mb-5">
-        <h3 className="text-sm font-semibold text-slate-800 mb-4">รายการเบิกอะไหล่ที่รออนุมัติ</h3>
-        {loadingRequests ? (
-          <p className="text-xs text-slate-400 text-center py-6">กำลังโหลดข้อมูล...</p>
-        ) : pendingGroups.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-6">ยังไม่มีคำขอเบิกอะไหล่ที่รออนุมัติ</p>
-        ) : (
-          <div>
-            {pendingGroups.map((g) => (
-              <PendingJobGroupRow
-                key={g.repairId}
-                repairId={g.repairId}
-                items={g.items}
-                repairInfo={repairs.find((r) => String(r.record_id) === String(g.repairId))}
-                onOpen={() => setViewingGroupId(g.repairId)}
-              />
-            ))}
+          อะไหล่ใหม่ย้ายไปอยู่คู่กับช่องค้นหาแทน (ในการ์ดตารางด้านล่าง)
+          🆕 [ใหม่] เดิมมีแค่กล่อง "รอเบิก" กล่องเดียวเต็มความกว้าง — เพิ่มกล่อง
+          "ทั้งหมด" คู่กันตามที่ขอ วางข้างกัน 2 คอลัมน์ ทั้งคู่โชว่แค่ 5 รายการ
+          ล่าสุด (ขนาดกล่องจะได้เท่ากันพอดี) พร้อมปุ่ม "ดูรายการทั้งหมด" มุมขวา
+          บนเปิด popup แบ่งหน้าดูครบทุกรายการได้ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-slate-800">รายการเบิกอะไหล่ที่รออนุมัติ</h3>
+            {pendingGroups.length > 0 ? (
+              <button
+                onClick={() => setViewAllMode("pending")}
+                className="text-xs font-medium text-blue-600 hover:underline shrink-0"
+              >
+                ดูรายการทั้งหมด
+              </button>
+            ) : null}
           </div>
-        )}
-      </Card>
+          {loadingRequests ? (
+            <p className="text-xs text-slate-400 text-center py-6">กำลังโหลดข้อมูล...</p>
+          ) : pendingGroups.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-6">ยังไม่มีคำขอเบิกอะไหล่ที่รออนุมัติ</p>
+          ) : (
+            <div>
+              {pendingGroups.slice(0, 5).map((g) => (
+                <JobGroupRow
+                  key={g.repairId}
+                  repairId={g.repairId}
+                  items={g.items}
+                  repairInfo={findRepairInfo(repairs, g.repairId)}
+                  onOpen={() => setViewingGroupId(g.repairId)}
+                />
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-slate-800">รายการเบิกอะไหล่ทั้งหมด</h3>
+            {allGroups.length > 0 ? (
+              <button
+                onClick={() => setViewAllMode("all")}
+                className="text-xs font-medium text-blue-600 hover:underline shrink-0"
+              >
+                ดูรายการทั้งหมด
+              </button>
+            ) : null}
+          </div>
+          {loadingRequests ? (
+            <p className="text-xs text-slate-400 text-center py-6">กำลังโหลดข้อมูล...</p>
+          ) : allGroups.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-6">ยังไม่มีการเบิกอะไหล่</p>
+          ) : (
+            <div>
+              {allGroups.slice(0, 5).map((g) => (
+                <JobGroupRow
+                  key={g.repairId}
+                  repairId={g.repairId}
+                  items={g.items}
+                  repairInfo={findRepairInfo(repairs, g.repairId)}
+                  onOpen={() => setViewingGroupId(g.repairId)}
+                  onDelete={setDeleteGroupTarget}
+                />
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
 
       <Card className="p-0 overflow-hidden">
         <div className="p-5 pb-0 flex items-center justify-between gap-3">
@@ -578,11 +825,32 @@ export default function SparePartsPage({ initialQuery }) {
         </div>
       </Card>
 
+      {/* 🔴 [แก้ไข] เดิมกดรายการในป๊อปอัป "ดูรายการทั้งหมด" แล้วป๊อปอัปนั้นจะปิด
+          ตัวเองไปเลย (setViewAllMode(null)) พอปิดรายละเอียดที่เพิ่งเปิดก็เลย
+          ต้องกดเปิด "ดูรายการทั้งหมด" ใหม่อีกรอบ — ตามที่ขอ เปลี่ยนให้ป๊อปอัป
+          "ดูรายการทั้งหมด" ไม่ปิดตัวเองแล้ว ให้ป๊อปอัปรายละเอียดงานเด้งซ้อนขึ้น
+          มาอีกชั้นแทน (ทั้งสองเปิดพร้อมกันได้) พอปิดรายละเอียดงาน ป๊อปอัป "ดู
+          รายการทั้งหมด" จะยังอยู่ที่เดิม ไม่ต้องเปิดใหม่ — ต้องวาง
+          AllGroupsListModal ไว้ "ก่อน" JobApprovalModal ในโค้ดด้วย (ลำดับ DOM
+          หลังกว่า = ซ้อนทับอยู่บนกว่า ทั้งคู่ใช้ z-50 เท่ากัน) ไม่งั้นจะซ้อน
+          สลับด้านผิดที่ */}
+      {viewAllMode ? (
+        <AllGroupsListModal
+          title={viewAllMode === "pending" ? "รายการเบิกอะไหล่ที่รออนุมัติ (ทั้งหมด)" : "รายการเบิกอะไหล่ทั้งหมด"}
+          groups={viewAllMode === "pending" ? pendingGroups : allGroups}
+          pageSize={requestsPageSize}
+          repairs={repairs}
+          onOpenGroup={(repairId) => setViewingGroupId(repairId)}
+          onDeleteJob={viewAllMode === "all" ? setDeleteGroupTarget : undefined}
+          onClose={() => setViewAllMode(null)}
+        />
+      ) : null}
+
       {viewingGroupId !== null ? (
         <JobApprovalModal
           repairId={viewingGroupId}
           items={viewingGroup?.items || []}
-          repairInfo={repairs.find((r) => String(r.record_id) === String(viewingGroupId))}
+          repairInfo={findRepairInfo(repairs, viewingGroupId)}
           parts={parts}
           onClose={() => setViewingGroupId(null)}
         />
@@ -649,6 +917,15 @@ export default function SparePartsPage({ initialQuery }) {
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
           busy={deleting}
+        />
+      ) : null}
+
+      {deleteGroupTarget ? (
+        <ConfirmDialog
+          message={`ต้องการลบรายการเบิกอะไหล่ของ "${deleteGroupTarget.jobLabel}" ทั้งหมด (${deleteGroupTarget.items?.length ?? 0} รายการ) ใช่หรือไม่? การลบนี้ไม่สามารถกู้คืนได้`}
+          onConfirm={handleDeleteGroup}
+          onCancel={() => setDeleteGroupTarget(null)}
+          busy={deletingGroup}
         />
       ) : null}
     </div>

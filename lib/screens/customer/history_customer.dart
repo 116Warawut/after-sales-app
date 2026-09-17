@@ -220,6 +220,17 @@ enum FilterTab {
   scheduledPending,
   cancelled,
   urgent,
+  // 🆕 [ใหม่] เพิ่มแท็บ "มีปัญหา" ให้ครบเหมือนฝั่งแอดมิน (AdminFilterTab.issue
+  // ใน repair_list_admin.dart) และหน้าเว็บแอดมิน (JOB_STATUS_TABS ใน
+  // constants.js) — เดิม TicketStatus.issue มีอยู่แล้วและคำนวณ/แสดงสีถูกต้อง
+  // ในการ์ดรายการงาน แต่ไม่มีแท็บให้กดกรองดูเฉพาะงานที่ช่างแจ้งว่ามีปัญหา ทำให้
+  // ลูกค้า/ช่างต้องไล่หาเองในแท็บ "ทั้งหมด"
+  issue,
+  // 🆕 [ใหม่] เพิ่มแท็บ "กำลังเดินทาง" แยกออกจาก "กำลังซ่อม" — เดิม
+  // TicketStatus.traveling ถูกนับรวมอยู่ในสรุปสถานะทั่วไปแต่ไม่มีแท็บกรองแยก
+  // ให้ตรงกับที่แอดมิน/เว็บมี (ดู RepairStatus.traveling ใน
+  // assign_repair_formdetail.dart และ JOB_STATUS_TABS ฝั่งเว็บ)
+  traveling,
 }
 
 extension FilterTabX on FilterTab {
@@ -239,6 +250,13 @@ extension FilterTabX on FilterTab {
         return 'ยกเลิก';
       case FilterTab.urgent: // ⭐ [เพิ่มใหม่]
         return 'เร่งด่วน';
+      // 🆕 [ใหม่] ใช้คำว่า "มีปัญหา" สั้น ๆ ให้ตรงกับป้ายแท็บบนหน้าเว็บแอดมิน
+      // (JOB_STATUS_TABS ใน constants.js ใช้ "มีปัญหา" ไม่ใช่ "มีปัญหา / ต้อง
+      // ตรวจสอบ" แบบที่ TicketStatus.issue.label ใช้ในการ์ดรายละเอียด)
+      case FilterTab.issue:
+        return 'มีปัญหา';
+      case FilterTab.traveling:
+        return 'กำลังเดินทาง';
     }
   }
 
@@ -263,6 +281,12 @@ extension FilterTabX on FilterTab {
         return status == TicketStatus.cancelled;
       case FilterTab.urgent: // ⭐ [เพิ่มใหม่]
         return isUrgent;
+      // 🆕 [ใหม่] กรองเฉพาะงานที่ TicketStatus เป็น issue (ช่างกดแจ้งว่ามีปัญหา/
+      // ต้องตรวจสอบ — mapped จากสถานะ 'มีปัญหา' ใน fromDbStatus() ด้านบนแล้ว)
+      case FilterTab.issue:
+        return status == TicketStatus.issue;
+      case FilterTab.traveling:
+        return status == TicketStatus.traveling;
     }
   }
 }

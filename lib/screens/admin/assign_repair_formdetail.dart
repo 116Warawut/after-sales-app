@@ -11,40 +11,29 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:after_sales/screens/admin/admin_tracking.dart';
 import 'package:after_sales/utils/firebase_number.dart';
 
-/// 📌 Enum สำหรับจัดการสถานะงานซ่อม (ตรงตามมาตรฐานระบบ)
+/// 📌 Enum สำหรับจัดการสถานะงานซ่อม
 enum RepairStatus {
   waiting('รอจัดสรรช่าง'),
-  // 🐛 [แก้บัค] เพิ่ม "รอดำเนินการ" (มีช่างแล้วแต่ยังไม่ถึงวันนัด) และ
-  // "เกินกำหนดเวลา" (ถึงวันนัดแล้วแต่ยังไม่เสร็จ) ให้ตรงกับค่าที่
-  // getEffectiveRepairStatus() ใน services.dart คำนวณจริง — เดิม enum นี้ไม่มี
-  // 2 เคสนี้เลย (และไม่รองรับ 'กำลังซ่อม' ที่ใช้ตอนถึงวันนัดพอดี) ทำให้ตกไปที่
-  // default กลายเป็น waiting เสมอ หน้ารายละเอียดงานเลยโชว์ "รอจัดสรรช่าง" ผิด ๆ
-  // ทั้งที่มีช่างรับงานแล้วและหน้ารายการซ่อม (repair_list_admin.dart) โชว์ถูกต้อง
   scheduledPending('รอดำเนินการ'),
-  // 🆕 [ใหม่] สถานะ "กำลังเดินทาง" (ถึงคิวงานแล้ว ช่างกำลังมุ่งหน้าไปหาลูกค้า
-  // ยังไม่ได้ลงมือซ่อมจริง) — ตั้งโดย markTechnicianTraveling() ใน
-  // services.dart ตอนช่างผ่านเงื่อนไขวันนัด+คิวงานในหน้าติดตามตำแหน่งลูกค้า
   traveling('กำลังเดินทาง'),
-  inProgress('กำลังดำเนินการ'),
+  inProgress('กำลังซ่อม'),
   overdue('เกินกำหนดเวลา'),
   completed('เสร็จสิ้นแล้ว'),
-  issue('มีปัญหา / ต้องตรวจสอบ'),
+  issue('มีปัญหา'), // 🔴 ปรับข้อความเป็น "มีปัญหา" ให้ตรงกับเว็บ
   cancelled('ยกเลิกแล้ว');
 
   final String label;
   const RepairStatus(this.label);
 
-  /// แปลง String จาก Database เป็น Enum
   static RepairStatus fromString(String? status) {
     if (status == null) return RepairStatus.waiting;
-    switch (status.trim().toLowerCase()) {
-      // 🆕 [ใหม่] ค่าใหม่ที่ markTechnicianTraveling() ใน services.dart ตั้งให้
-      // ตอนช่างถึงคิวงานและเปิดดูแผนที่แล้ว (ก่อนหน้า "กำลังซ่อม" จริง)
+    final s = status.trim().toLowerCase();
+    if (s == 'มีปัญหา' || s.contains('ปัญหา') || s == 'issue' || s == 'problem') {
+      return RepairStatus.issue;
+    }
+    switch (s) {
       case 'กำลังเดินทาง':
         return RepairStatus.traveling;
-      // 🐛 [แก้บัค] getEffectiveRepairStatus() คืนค่า 'กำลังซ่อม' (ไม่ใช่
-      // 'กำลังดำเนินการ') เมื่อถึงวันนัดพอดี — เดิมไม่มีเคสนี้เลยจึงตกไปเป็น
-      // waiting ทำให้งานที่กำลังซ่อมอยู่โชว์ป้าย "รอจัดสรรช่าง" ผิด ๆ
       case 'กำลังดำเนินการ':
       case 'กำลังซ่อม':
       case 'inprogress':
@@ -61,8 +50,6 @@ enum RepairStatus {
       case 'done':
       case 'completed':
         return RepairStatus.completed;
-      case 'มีปัญหา':
-        return RepairStatus.issue;
       case 'ยกเลิก':
       case 'cancelled':
       case 'canceled':
@@ -73,15 +60,11 @@ enum RepairStatus {
   }
 }
 
-/// 📌 Helper สำหรับจัดการสีตามสถานะงาน
 class RepairStatusHelper {
   static Color getBgColor(RepairStatus status) {
     switch (status) {
       case RepairStatus.inProgress:
         return AppColors.blueBg;
-      // 🆕 [ใหม่] สีฟ้าเดียวกับที่ widgets.dart/repair_list_admin.dart ใช้กับ
-      // 'กำลังเดินทาง' — แยกจาก "กำลังดำเนินการ" (น้ำเงินเข้ม) ให้ชัดเจนว่า
-      // เป็นคนละขั้นตอนกัน
       case RepairStatus.traveling:
         return const Color(0xFFDCEEFF);
       case RepairStatus.scheduledPending:
@@ -125,7 +108,6 @@ class RepairStatusHelper {
 // SECTION 2: DATA MODELS
 // ==========================================
 
-/// 📌 โมเดลข้อมูลช่าง
 class TechnicianItem {
   final String username;
   final String name;
@@ -147,7 +129,6 @@ class TechnicianItem {
       );
 }
 
-/// ตัวช่วยแปลงวันที่ให้อยู่ในรูปแบบเดียวกับที่ระบบเก็บในคอลัมน์ date (พ.ศ.)
 class AppointmentDate {
   AppointmentDate._();
 
@@ -179,7 +160,6 @@ class AppointmentDate {
   }
 }
 
-/// 📌 โมเดลข้อมูลงานซ่อม
 class AdminJobInfo {
   final String ticketId;
   final String machineCode;
@@ -200,6 +180,11 @@ class AdminJobInfo {
   final String reportAfterPhoto;
   final String reportSlipPhoto;
   final String? reportSubmittedAt;
+  // 🔴 ข้อมูลปัญหาที่ช่างแจ้ง
+  final String problemNote;
+  final List<String> problemPhotos;
+  final String? problemReportedBy;
+  final String? problemReportedAt;
 
   const AdminJobInfo({
     required this.ticketId,
@@ -221,10 +206,19 @@ class AdminJobInfo {
     this.reportAfterPhoto = '',
     this.reportSlipPhoto = '',
     this.reportSubmittedAt,
+    this.problemNote = '',
+    this.problemPhotos = const [],
+    this.problemReportedBy,
+    this.problemReportedAt,
   });
 
   bool get hasReport =>
       reportSubmittedAt != null && reportSubmittedAt!.isNotEmpty;
+
+  bool get hasProblem =>
+      status == RepairStatus.issue ||
+      problemNote.isNotEmpty ||
+      problemPhotos.isNotEmpty;
 }
 
 // ==========================================
@@ -241,10 +235,6 @@ class AssignRepairFormDetailPage extends StatefulWidget {
       _AssignRepairFormDetailPageState();
 }
 
-// ==========================================
-// SECTION 4: STATE MANAGEMENT & LOGIC
-// ==========================================
-
 class _AssignRepairFormDetailPageState
     extends State<AssignRepairFormDetailPage> {
   AdminJobInfo? _job;
@@ -254,13 +244,13 @@ class _AssignRepairFormDetailPageState
   String? _assignedTechnicianUsername;
   String? _assignedTechnicianName;
 
-  /// วันและเวลานัดซ่อม
   DateTime? _appointmentDate;
   TimeOfDay? _appointmentTime;
 
   bool _isLoading = true;
   bool _isAssigning = false;
   bool _isCheckingQuota = false;
+  bool _isResolvingProblem = false;
 
   @override
   void initState() {
@@ -275,7 +265,6 @@ class _AssignRepairFormDetailPageState
     return '$hour:$minute น.';
   }
 
-  /// 🔄 ดึงข้อมูลใบแจ้งซ่อม + รายชื่อช่างจาก Database
   Future<void> _loadDataFromDatabase() async {
     setState(() => _isLoading = true);
 
@@ -321,21 +310,40 @@ class _AssignRepairFormDetailPageState
         }
 
         final statusStr = repairRow['status']?.toString();
-        final timeStr = repairRow['appointment_time']?.toString() ??
-            repairRow['time']?.toString() ??
-            '';
 
-        if (timeStr.contains(':')) {
-          final parts = timeStr.replaceAll(RegExp(r'[^0-9:]'), '').split(':');
+        String timeStr = (repairRow['appointment_time']?.toString() ?? '').trim();
+        if (timeStr.isEmpty) {
+          timeStr = (repairRow['time']?.toString() ?? '').trim();
+        }
+        if (timeStr.isEmpty) {
+          timeStr = (repairRow['appointmentTime']?.toString() ?? '').trim();
+        }
+
+        final cleanTime = timeStr.replaceAll('น.', '').trim();
+        if (cleanTime.contains(':')) {
+          final parts = cleanTime.split(':');
           if (parts.length >= 2) {
-            final h = int.tryParse(parts[0]);
-            final m = int.tryParse(parts[1]);
+            final h = int.tryParse(parts[0].replaceAll(RegExp(r'[^0-9]'), ''));
+            final m = int.tryParse(parts[1].replaceAll(RegExp(r'[^0-9]'), ''));
             if (h != null && m != null) {
               _appointmentTime = TimeOfDay(hour: h, minute: m);
             }
           }
         }
         _appointmentTime ??= const TimeOfDay(hour: 9, minute: 0);
+
+        // 🔴 ดึงข้อมูลปัญหาที่ช่างแจ้ง
+        final probNote = repairRow['problem_note']?.toString() ?? '';
+        final rawProbPhotos = repairRow['problem_photos']?.toString() ?? '';
+        final probPhotos = rawProbPhotos.isNotEmpty
+            ? rawProbPhotos
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList()
+            : <String>[];
+        final probBy = repairRow['problem_reported_by']?.toString();
+        final probAt = repairRow['problem_reported_at']?.toString();
 
         _job = AdminJobInfo(
           ticketId: repairRow['ticketNo']?.toString() ??
@@ -355,7 +363,7 @@ class _AssignRepairFormDetailPageState
           destLat: toDoubleOrNull(repairRow['dest_lat']),
           destLng: toDoubleOrNull(repairRow['dest_lng']),
           appointmentDate: repairRow['date']?.toString() ?? '-',
-          appointmentTime: timeStr,
+          appointmentTime: cleanTime.isNotEmpty ? cleanTime : timeStr,
           images: imageList,
           reportFormCode: repairRow['report_form_code']?.toString() ?? '',
           reportProblemDetail:
@@ -365,6 +373,10 @@ class _AssignRepairFormDetailPageState
           reportAfterPhoto: repairRow['report_after_photo']?.toString() ?? '',
           reportSlipPhoto: repairRow['report_slip_photo']?.toString() ?? '',
           reportSubmittedAt: repairRow['report_submitted_at']?.toString(),
+          problemNote: probNote,
+          problemPhotos: probPhotos,
+          problemReportedBy: probBy,
+          problemReportedAt: probAt,
         );
 
         _assignedTechnicianUsername =
@@ -394,7 +406,6 @@ class _AssignRepairFormDetailPageState
     }
   }
 
-  /// 🔄 นับงานของช่างแต่ละคนในวันนัดซ่อมที่เลือก
   Future<void> _refreshTechnicianWorkload() async {
     final date = _appointmentDate;
     if (date == null || _technicians.isEmpty) return;
@@ -422,7 +433,6 @@ class _AssignRepairFormDetailPageState
     }
   }
 
-  /// 📅 เปิดปฏิทินให้เลือกวันนัดซ่อม
   Future<bool> _pickAppointmentDate() async {
     final now = DateTime.now();
     final firstDate = DateTime(now.year, now.month, now.day);
@@ -453,7 +463,6 @@ class _AssignRepairFormDetailPageState
     return true;
   }
 
-  /// ⏰ เปิดนาฬิกาให้เลือกเวลานัดหมาย
   Future<void> _pickAppointmentTime() async {
     final initial = _appointmentTime ?? const TimeOfDay(hour: 9, minute: 0);
 
@@ -470,7 +479,6 @@ class _AssignRepairFormDetailPageState
     }
   }
 
-  /// 👆 แตะที่ชื่อช่าง — เลือกช่างได้ทันที ไม่บังคับเด้งปฏิทิน
   void _onTechnicianTap(TechnicianItem tech) {
     if (tech.isFull) {
       _showSnackBar(
@@ -483,7 +491,6 @@ class _AssignRepairFormDetailPageState
     setState(() => _selectedTechnicianUsername = tech.username);
   }
 
-  /// 💾 บันทึกการมอบหมายช่าง
   Future<void> _handleAssign() async {
     if (_selectedTechnicianUsername == null) {
       _showSnackBar('กรุณาเลือกช่างก่อนกดมอบหมาย');
@@ -525,7 +532,6 @@ class _AssignRepairFormDetailPageState
           ? '${_appointmentTime!.hour.toString().padLeft(2, '0')}:${_appointmentTime!.minute.toString().padLeft(2, '0')}'
           : '09:00';
 
-      // 1. มอบหมายช่าง
       await dbHelper.assignTechnicianToRepair(
         repairId: widget.repairId,
         techUsername: _selectedTechnicianUsername!,
@@ -533,17 +539,16 @@ class _AssignRepairFormDetailPageState
         appointmentDate: AppointmentDate.toDbText(_appointmentDate!),
       );
 
-      // 2. อัปเดตข้อมูลแอดมิน + เวลานัดหมาย
       final adminProfile = await dbHelper.getAdminProfile(currentAdmin);
       await dbHelper.updateRepair(widget.repairId, {
         if (adminProfile != null) ...{
           'admin_name': adminProfile['admin_name'],
           'admin_code': adminProfile['admin_code'],
         },
+        'time': formattedTime,
         'appointment_time': formattedTime,
       });
 
-      // 3. แจ้งเตือนช่าง (ระบุทั้งวันและเวลา)
       if (_job != null) {
         await dbHelper.createNotification({
           'user_username': _selectedTechnicianUsername!,
@@ -569,9 +574,46 @@ class _AssignRepairFormDetailPageState
     }
   }
 
-// ==========================================
-// SECTION 5: ACTIONS & UTILITIES
-// ==========================================
+  // 🔴 ฟังก์ชันปลดสถานะมีปัญหากลับเป็นสถานะเดิม (Resolve Issue)
+  Future<void> _resolveProblem() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ยืนยันแก้ไขปัญหาแล้ว?'),
+        content: const Text(
+            'ต้องการเปลี่ยนสถานะงานนี้กลับเป็นสถานะปกติเพื่อให้ดำเนินการต่อใช่หรือไม่?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('ยืนยัน'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() => _isResolvingProblem = true);
+
+    try {
+      await DatabaseHelper.instance.resolveRepairProblem(widget.repairId);
+      _showSnackBar('แก้ไขปัญหาและคืนสถานะงานเรียบร้อยแล้ว');
+      await _loadDataFromDatabase();
+    } catch (e) {
+      debugPrint('Error resolving problem: $e');
+      _showSnackBar('เกิดข้อผิดพลาดในการคืนสถานะงาน: $e');
+    } finally {
+      if (mounted) setState(() => _isResolvingProblem = false);
+    }
+  }
 
   void _openTrackingMap() {
     Navigator.push(
@@ -656,10 +698,6 @@ class _AssignRepairFormDetailPageState
     );
   }
 
-// ==========================================
-// SECTION 6: BUILD METHOD
-// ==========================================
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -694,6 +732,17 @@ class _AssignRepairFormDetailPageState
                               onImageTap: (path) =>
                                   _showImagePreview(context, path),
                             ),
+                            // 🔴 ส่วนแสดงการ์ดปัญหาที่พบ (ถ้ามี)
+                            if (_job!.hasProblem) ...[
+                              const SizedBox(height: 20),
+                              _ProblemReportCard(
+                                job: _job!,
+                                isResolving: _isResolvingProblem,
+                                onImageTap: (path) =>
+                                    _showImagePreview(context, path),
+                                onResolve: _resolveProblem,
+                              ),
+                            ],
                             if (_job!.hasReport) ...[
                               const SizedBox(height: 20),
                               _RepairReportCard(
@@ -835,8 +884,13 @@ class _JobInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayDate = job.appointmentTime.isNotEmpty
-        ? '${job.appointmentDate} (${job.appointmentTime} น.)'
+    final formattedTimeText = job.appointmentTime.trim().isNotEmpty
+        ? (job.appointmentTime.contains('น.')
+            ? job.appointmentTime.trim()
+            : '${job.appointmentTime.trim()} น.')
+        : '';
+    final displayDate = formattedTimeText.isNotEmpty
+        ? '${job.appointmentDate} ($formattedTimeText)'
         : job.appointmentDate;
 
     return _SectionCard(
@@ -1048,6 +1102,158 @@ class _JobInfoCard extends StatelessWidget {
   }
 }
 
+// 🔴 การ์ดแสดงปัญหาที่ช่างแจ้งเข้ามา พร้อมปุ่มคืนสถานะงาน
+class _ProblemReportCard extends StatelessWidget {
+  final AdminJobInfo job;
+  final bool isResolving;
+  final ValueChanged<String> onImageTap;
+  final VoidCallback onResolve;
+
+  const _ProblemReportCard({
+    required this.job,
+    required this.isResolving,
+    required this.onImageTap,
+    required this.onResolve,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFEF3C7),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.warning_amber_rounded,
+                    size: 20, color: Color(0xFFD97706)),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'ปัญหาที่พบระหว่างปฏิบัติงาน',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    fontFamily: AppStyles.fontFamily,
+                    color: Color(0xFF92400E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (job.problemReportedAt != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'แจ้งปัญหาเมื่อ ${formatNotificationDateTime(job.problemReportedAt)}'
+              '${job.problemReportedBy != null ? ' โดย ${job.problemReportedBy}' : ''}',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFFB45309),
+                fontFamily: AppStyles.fontFamily,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Text(
+            job.problemNote.isNotEmpty
+                ? job.problemNote
+                : 'ช่างแจ้งว่ามีปัญหาหน้างาน แต่ยังไม่ได้ระบุรายละเอียดเพิ่มเติม',
+            style: const TextStyle(
+              fontSize: 14,
+              fontFamily: AppStyles.fontFamily,
+              color: AppColors.textMain,
+              height: 1.4,
+            ),
+          ),
+          if (job.problemPhotos.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 90,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: job.problemPhotos.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final photoUrl = job.problemPhotos[index];
+                  return GestureDetector(
+                    onTap: () => onImageTap(photoUrl),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        photoUrl,
+                        width: 80,
+                        height: 90,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 80,
+                          height: 90,
+                          color: Colors.grey.shade200,
+                          child: const Icon(Icons.broken_image,
+                              color: Colors.grey),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: isResolving ? null : onResolve,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD97706),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              icon: isResolving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.check_circle_outline, size: 18),
+              label: Text(
+                isResolving ? 'กำลังบันทึก...' : 'แก้ไขปัญหาแล้ว (คืนสถานะงาน)',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontFamily: AppStyles.fontFamily,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RepairReportCard extends StatelessWidget {
   final AdminJobInfo job;
   final ValueChanged<String> onImageTap;
@@ -1191,7 +1397,6 @@ class _RepairReportCard extends StatelessWidget {
   }
 }
 
-/// 📌 การ์ดมอบหมายช่าง — แยกกล่องเลือกวัน และกล่องเลือกเวลาออกจากกันชัดเจน
 class _AssignCard extends StatelessWidget {
   final List<TechnicianItem> technicians;
   final String? selectedTechnicianUsername;
@@ -1273,10 +1478,8 @@ class _AssignCard extends StatelessWidget {
             const SizedBox(height: 16),
           ],
 
-          // 📅 วันและเวลานัดหมาย (วางคู่กัน 2 ช่อง)
           Row(
             children: [
-              // ช่องเลือกวัน
               Expanded(
                 flex: 6,
                 child: Column(
@@ -1334,7 +1537,6 @@ class _AssignCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              // ช่องเลือกเวลา
               Expanded(
                 flex: 4,
                 child: Column(
@@ -1392,7 +1594,6 @@ class _AssignCard extends StatelessWidget {
           ),
           const SizedBox(height: 18),
 
-          // 👷 รายชื่อช่าง
           Row(
             children: [
               Expanded(

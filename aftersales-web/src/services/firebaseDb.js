@@ -305,8 +305,15 @@ export async function assignTechnicianToRepair(repairId, technicianUsername, adm
   const now = new Date().toISOString();
   
   // คำนวณสถานะเริ่มต้นตามวันนัดหมาย
-  let initialStatus = "กำลังซ่อม";
-  let progress = 0.1;
+  // 🐛 [แก้ไข] BUG: เดิม default เป็น "กำลังซ่อม" ทันทีเมื่อวันนัดเป็นวันนี้
+  // (หรือไม่ระบุวันนัด) ทั้งที่ช่างยังไม่ได้เริ่มเดินทาง/ลงมือทำจริงเลย — ตรงกับ
+  // บั๊กเดียวกันที่แก้ไปแล้วฝั่ง Flutter (assignTechnicianToRepair() ใน
+  // services.dart) เปลี่ยนเป็น "รอดำเนินการ" ก่อน แล้วให้ระบบคิวงานฝั่งแอปมือถือ
+  // (markTechnicianTraveling()/รับงานจริง) ขยับสถานะเป็น "กำลังเดินทาง" แล้ว
+  // "กำลังดำเนินการ" ตามลำดับจริงแทน — เว็บเองไม่มีการติดตาม GPS ของช่าง เลย
+  // ไม่ต้องขยับสถานะเองที่นี่ แค่ตั้งค่าเริ่มต้นให้ถูกพอ
+  let initialStatus = "รอดำเนินการ";
+  let progress = 0.05;
   if (appointmentDate) {
     const comp = compareAppointmentDate(appointmentDate);
     if (comp === "future") {
@@ -523,7 +530,12 @@ export function computeDashboardSummary(repairs = []) {
     else if (isUrgentJob) urgent++;
     else if (eff === "รอจัดสรรช่าง") pending++;
     else if (eff === "รอดำเนินการ") scheduledPending++;
-    else if (eff === "กำลังซ่อม") inProgress++;
+    // 🆕 [ใหม่] รวม "กำลังเดินทาง" (สถานะใหม่ฝั่งแอปมือถือ — ช่างถึงคิวงานแล้ว
+    // กำลังมุ่งหน้าไปหาลูกค้า) เข้าการ์ด "กำลังซ่อม" เดิมไปด้วย — เดิมเทียบ
+    // "กำลังซ่อม" ตรงๆ เท่านั้น พอ getEffectiveRepairStatus() คืนค่า
+    // "กำลังเดินทาง" แยกออกมาแล้ว งานกลุ่มนี้จะตกไปไม่ถูกนับในการ์ดไหนเลย
+    // ทั้งที่ยังนับรวมอยู่ใน "งานทั้งหมด" (total) ทำให้ตัวเลขไม่ตรงกัน
+    else if (eff === "กำลังซ่อม" || eff === "กำลังเดินทาง") inProgress++;
   });
   const completedToday = repairs.filter((r) => isDoneStatus(getEffectiveRepairStatus(r))).length;
   const cancelled = repairs.filter((r) => (r.status || "").includes("ยกเลิก")).length;

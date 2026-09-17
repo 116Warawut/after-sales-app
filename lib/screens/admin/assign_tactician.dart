@@ -58,7 +58,9 @@ class _AssignTacticianScreenState extends State<AssignTacticianScreen> {
         final allRepairs = await dbHelper.getAllRepairs();
         final busyUsernames = allRepairs
             .where((r) =>
-                r['status'] == 'กำลังดำเนินการ' &&
+                (r['status'] == 'กำลังดำเนินการ' ||
+                    r['status'] == 'กำลังซ่อม' ||
+                    r['status'] == 'กำลังเดินทาง') &&
                 r['technician_username'] != null)
             .map((r) => r['technician_username'].toString())
             .toSet();

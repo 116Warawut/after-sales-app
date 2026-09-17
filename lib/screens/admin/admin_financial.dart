@@ -13,12 +13,17 @@ class Invoice {
   final String id;
   final String date;
   final double amount;
+  // 🆕 [ใหม่] true = บิลนี้ยกเว้นค่าใช้จ่ายเพราะเครื่องจักรอยู่ในประกัน — ใช้โชว์
+  // ป้ายแยกในรายการบิล กันแอดมินสับสนว่าเป็นยอดชำระจริง (ดู updateRepairBill()
+  // ใน services.dart และการ์ด "การรับประกัน" ใน admin_create_invoice.dart)
+  final bool isWarrantyCovered;
 
   Invoice({
     required this.repairId,
     required this.id,
     required this.date,
     required this.amount,
+    this.isWarrantyCovered = false,
   });
 
   factory Invoice.fromMap(Map<String, dynamic> map) {
@@ -33,6 +38,8 @@ class Invoice {
           (map['date']?.toString()) ??
           '-',
       amount: toDoubleOrNull(map['total_price']) ?? 0,
+      isWarrantyCovered:
+          map['is_warranty_covered'] == true || map['is_warranty_covered'] == 1,
     );
   }
 }
@@ -445,13 +452,41 @@ class _InvoiceTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'บิลหมายเลข ${invoice.id}',
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'บิลหมายเลข ${invoice.id}',
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // 🆕 [ใหม่] ป้าย "ประกัน" แยกให้เห็นชัดว่าบิลนี้ไม่มี
+                        // ค่าใช้จ่ายจริง กันแอดมินเข้าใจผิดว่าเป็นยอดขาย
+                        if (invoice.isWarrantyCovered) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.greenBg,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'ประกัน',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.greenText,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Text(

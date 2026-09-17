@@ -103,6 +103,25 @@ class _RepairListAdminPageState extends State<RepairListAdminPage> {
     }
   }
 
+  // 🔴 [แก้บั๊ก] เจอบั๊กเดียวกับฝั่งเว็บ (RepairJobsPage.jsx) และหน้าแชท
+  // (chat_list_page.dart / ChatPage.jsx): หน้านี้เดิมโชว์งานซ่อม "ทั้งหมดใน
+  // ระบบ" ให้แอดมินทุกคนเห็นเหมือนกันหมด ทั้งที่งานที่ถูกมอบหมายให้แอดมินคนใด
+  // คนหนึ่งดูแลแล้ว (มี adminUsername แล้ว) ควรเห็นได้แค่แอดมินเจ้าของงานคนเดียว
+  // — แอดมินหลัก (Session.isMainAdmin) ยังคงเห็นทุกงานเหมือนเดิม เพราะต้องใช้
+  // ดูภาพรวม/มอบหมายงานใหม่ให้แอดมินคนอื่นได้ (ฟังก์ชัน _reassignAdmin ด้านบน
+  // ก็จำกัดไว้เฉพาะแอดมินหลักอยู่แล้วเช่นกัน) ส่วนงานที่ยังไม่มีแอดมินรับผิดชอบ
+  // เลย (adminUsername ว่าง — เช่นงานที่เพิ่งแจ้งเข้ามาใหม่ ยัง "รอจัดสรรช่าง")
+  // ให้ทุกแอดมินยังเห็นได้เหมือนเดิม จะได้มีคนหยิบไปมอบหมายช่างต่อได้
+  List<RepairListItem> get _visibleItems {
+    if (Session.isMainAdmin) return _allItems;
+    final me = Session.currentUsername;
+    return _allItems
+        .where((item) =>
+            (item.adminUsername ?? '').trim().isEmpty ||
+            item.adminUsername == me)
+        .toList();
+  }
+
   // จับคู่แท็บตัวกรองกับรายการงานซ่อมของแอดมิน
   // 🆕 [ใหม่] ใช้ AdminFilterTab ของหน้านี้เอง (แยกจาก customer_history.FilterTab
   // ที่ลูกค้า/ช่างใช้ร่วมกัน) เพิ่ม 2 แท็บใหม่: "มีปัญหา/ต้องตรวจสอบ" กับ
@@ -121,6 +140,8 @@ class _RepairListAdminPageState extends State<RepairListAdminPage> {
       // วันนัด) ไปปนอยู่ในแท็บ "รอจัดสรรช่าง" — เพิ่มให้ตรงกับเว็บแอดมิน
       case AdminFilterTab.scheduledPending:
         return item.status == RepairStatus.scheduledPending;
+      case AdminFilterTab.traveling:
+        return item.status == RepairStatus.traveling;
       case AdminFilterTab.cancelled:
         return item.status == RepairStatus.cancelled;
       case AdminFilterTab.urgent:
@@ -135,7 +156,7 @@ class _RepairListAdminPageState extends State<RepairListAdminPage> {
   // กรองข้อมูลตามแท็บและคำค้นหา
   List<RepairListItem> get _filteredItems {
     final query = _searchQuery.trim().toLowerCase();
-    return _allItems.where((item) {
+    return _visibleItems.where((item) {
       final matchesTab = _tabMatches(_selectedTab, item);
       final matchesSearch = query.isEmpty ||
           item.ticketId.toLowerCase().contains(query) ||
@@ -320,7 +341,7 @@ class _RepairListAdminPageState extends State<RepairListAdminPage> {
         child: Column(
           children: [
             _AdminFilterHeader(
-              totalTickets: _allItems.length,
+              totalTickets: _visibleItems.length,
               selectedTab: _selectedTab,
               onBack: widget.onBack,
               onTabChanged: (tab) {
@@ -460,6 +481,9 @@ enum AdminFilterTab {
   // — เดิมสถานะนี้ถูกคำนวณจาก getEffectiveRepairStatus() อยู่แล้วในฝั่ง service
   // แต่หน้านี้ไม่มีเคสรองรับเลยจึงตกไปปนกับ "รอจัดสรรช่าง" ทั้งที่เป็นคนละสถานะ
   scheduledPending,
+  // 🆕 [ใหม่] แท็บ "กำลังเดินทาง" แยกออกจาก "กำลังซ่อม" — ให้ตรงกับ
+  // RepairStatus.traveling ที่มีอยู่แล้วในไฟล์นี้ และ JOB_STATUS_TABS ฝั่งเว็บ
+  traveling,
   inProgress,
   urgent,
   issue,
@@ -478,6 +502,8 @@ extension AdminFilterTabX on AdminFilterTab {
         return 'รอจัดสรรช่าง';
       case AdminFilterTab.scheduledPending:
         return 'รอดำเนินการ';
+      case AdminFilterTab.traveling:
+        return 'กำลังเดินทาง';
       case AdminFilterTab.inProgress:
         return 'กำลังซ่อม';
       case AdminFilterTab.urgent:
@@ -520,7 +546,7 @@ extension RepairStatusX on RepairStatus {
         RepairStatus.waiting => 'รอจัดสรรช่าง',
         RepairStatus.scheduledPending => 'รอดำเนินการ',
         RepairStatus.traveling => 'กำลังเดินทาง',
-        RepairStatus.inProgress => 'กำลังดำเนินการ',
+        RepairStatus.inProgress => 'กำลังซ่อม',
         RepairStatus.overdue => 'เกินกำหนดเวลา',
         RepairStatus.done => 'เสร็จสิ้นแล้ว',
         RepairStatus.cancelled => 'ยกเลิกแล้ว',

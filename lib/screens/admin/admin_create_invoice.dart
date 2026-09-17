@@ -4,6 +4,9 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:after_sales/app_styles.dart';
+// 🆕 [ใหม่] ใช้ Machine.warrantyActive/warrantyStatusText เพื่อตรวจสอบประกัน
+// ของเครื่องจักรที่ผูกกับงานซ่อมนี้ ตอนเปิดหน้าออกบิล (ดู _loadWarrantyInfo())
+import 'package:after_sales/screens/customer/machine_models.dart';
 
 // =============================================================================
 // [SECTION 1] DATA MODELS (โครงสร้างข้อมูล)
@@ -106,6 +109,16 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
   double _withholdingTaxRate =
       3.0; // อัตราหัก ณ ที่จ่าย (ค่าเริ่มต้น 3% สำหรับค่าบริการ)
 
+  // 🆕 [ใหม่] สถานะประกันของเครื่องจักรที่ผูกกับงานซ่อมนี้ — ถ้าเปิดใช้งาน
+  // (auto-detect จาก Machine.warrantyActive หรือแอดมินเปิดเอง) รายการ/ราคาในบิล
+  // ยังกรอกได้ตามปกติ แต่ลูกค้าจะไม่เห็นปุ่มชำระเงิน/QR code (ดู _saveInvoice()
+  // และหน้า customer_job_detail.dart ฝั่งลูกค้า)
+  bool _isWarrantyCovered = false;
+  bool _loadingWarrantyInfo = false;
+  // ข้อความสถานะประกันที่ตรวจพบจากข้อมูลเครื่องจักรจริง (ถ้ามี) โชว์เป็นคำอธิบาย
+  // ใต้สวิตช์ — null ถ้าไม่พบเครื่องจักรผูกกับงานนี้เลย (เช่น "อุปกรณ์บริการทั่วไป")
+  String? _machineWarrantyStatusText;
+
   @override
   void initState() {
     super.initState();
@@ -139,6 +152,47 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
       // 🔴 [ใหม่] ดึงราคาประเมินที่ช่างกรอกไว้ มาเติมเป็นรายการค่าแรงเริ่มต้น
       // ในบิลให้อัตโนมัติ แอดมินไม่ต้องถามช่างเองว่าตีราคาไว้เท่าไหร่
       _prefillEstimatedLaborItem();
+      // 🆕 [ใหม่] ตรวจสอบประกันของเครื่องจักรที่ผูกกับงานซ่อมนี้ ถ้ายังอยู่ใน
+      // ประกัน เปิดสวิตช์ "ไม่มีค่าใช้จ่าย (อยู่ในประกัน)" ให้อัตโนมัติ
+      _loadWarrantyInfo();
+    }
+  }
+
+  /// 🛡️ [ใหม่] ดึง machine_id จากงานซ่อมนี้ แล้วเช็คสถานะประกันของเครื่องจักร
+  /// (Machine.warrantyActive) — ถ้ายังอยู่ในประกัน เปิดสวิตช์ยกเว้นค่าใช้จ่าย
+  /// ให้อัตโนมัติ (แอดมินยังปิด/เปิดสวิตช์เองทีหลังได้ตามดุลยพินิจ เช่น ความเสียหาย
+  /// ไม่เข้าเงื่อนไขประกัน)
+  Future<void> _loadWarrantyInfo() async {
+    final repairId = int.tryParse(widget.initialRepairId ?? '');
+    if (repairId == null) return;
+
+    setState(() => _loadingWarrantyInfo = true);
+    try {
+      final repair = await db.DatabaseHelper.instance.getRepairById(repairId);
+      final machineId = repair?['machine_id'];
+      if (machineId == null) {
+        if (!mounted) return;
+        setState(() => _loadingWarrantyInfo = false);
+        return;
+      }
+
+      final machineMap =
+          await db.DatabaseHelper.instance.getMachineById(machineId);
+      if (machineMap == null || !mounted) {
+        if (mounted) setState(() => _loadingWarrantyInfo = false);
+        return;
+      }
+
+      final machine = Machine.fromMap(machineMap);
+      setState(() {
+        _isWarrantyCovered = machine.warrantyActive;
+        _machineWarrantyStatusText = machine.warrantyStatusText;
+        _loadingWarrantyInfo = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading warranty info for invoice: $e');
+      if (!mounted) return;
+      setState(() => _loadingWarrantyInfo = false);
     }
   }
 
@@ -513,13 +567,18 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
     setState(() => _isSaving = true);
     try {
       // 3. บันทึกบิลจริงลงตาราง repairs (bill_id / invoice_no / total_price)
+      // 🆕 [ใหม่] ส่ง isWarrantyCovered ไปด้วย — ถ้าอยู่ในประกัน
+      // updateRepairBill() จะมาร์กบิลนี้เป็น "ชำระแล้ว" ให้อัตโนมัติ (ไม่ต้องรอ
+      // ลูกค้าจ่ายเงินจริง) แต่ไม่นับเป็นรายได้ตอนสรุปยอด
       await db.DatabaseHelper.instance.updateRepairBill(
         repairId,
         billId: _invoiceNumberController.text.trim(),
         totalPrice: _grandTotal,
+        isWarrantyCovered: _isWarrantyCovered,
       );
 
-      // 4. แจ้งเตือนลูกค้าว่ามีใบแจ้งหนี้ใหม่
+      // 4. แจ้งเตือนลูกค้าว่ามีใบแจ้งหนี้ใหม่ — ข้อความต่างกันถ้าอยู่ในประกัน
+      // (ไม่ต้องบอกให้ลูกค้าไปชำระเงิน เพราะไม่มีค่าใช้จ่ายจริง)
       final repair = await db.DatabaseHelper.instance.getRepairById(repairId);
       final customerUsername = repair?['customer_username']?.toString();
       final ticketNo = repair?['ticketNo']?.toString() ?? '';
@@ -527,9 +586,11 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
         await db.DatabaseHelper.instance.createNotification({
           'user_username': customerUsername,
           'role': 'CUSTOMER',
-          'title': 'มีใบแจ้งหนี้ใหม่',
-          'message':
-              'งานซ่อม $ticketNo มีใบแจ้งหนี้ยอด ฿${_grandTotal.toStringAsFixed(2)} กรุณาชำระเงิน',
+          'title':
+              _isWarrantyCovered ? 'มีใบแจ้งค่าบริการ (อยู่ในประกัน)' : 'มีใบแจ้งหนี้ใหม่',
+          'message': _isWarrantyCovered
+              ? 'งานซ่อม $ticketNo มีค่าบริการ ฿${_grandTotal.toStringAsFixed(2)} แต่ไม่มีค่าใช้จ่าย เนื่องจากเครื่องจักรอยู่ในประกัน'
+              : 'งานซ่อม $ticketNo มีใบแจ้งหนี้ยอด ฿${_grandTotal.toStringAsFixed(2)} กรุณาชำระเงิน',
           'type': 'INVOICE_CREATED',
           'target_id': repairId,
           'is_read': 0,
@@ -623,6 +684,13 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
                       const SizedBox(height: 20),
                       _buildCustomerCard(),
                       const SizedBox(height: 20),
+                      // 🆕 [ใหม่] การ์ดยกเว้นค่าใช้จ่ายเพราะประกัน — โชว์เฉพาะตอน
+                      // ออกบิลผูกกับงานซ่อมจริง (มี initialRepairId) เพราะต้องมี
+                      // เครื่องจักร/งานซ่อมให้อ้างอิงสถานะประกัน
+                      if (widget.initialRepairId != null) ...[
+                        _buildWarrantyCard(),
+                        const SizedBox(height: 20),
+                      ],
                       if (widget.initialRepairId != null &&
                           (_loadingPartRequests ||
                               _availablePartRequests.isNotEmpty)) ...[
@@ -894,6 +962,70 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
             decoration: _inputStyle(hint: 'บ้านเลขที่ ถนน แขวง เขต จังหวัด'),
           ),
         ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // การ์ดยกเว้นค่าใช้จ่ายเพราะประกัน (🆕 [ใหม่])
+  // ---------------------------------------------------------------------------
+  Widget _buildWarrantyCard() {
+    return _card(
+      icon: Icons.shield_outlined,
+      title: 'การรับประกัน',
+      action: _loadingWarrantyInfo
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : null,
+      children: [
+        _TaxSwitch(
+          label: 'อยู่ในประกัน (ลูกค้าไม่ต้องชำระเงิน)',
+          value: _isWarrantyCovered,
+          onChanged: (val) => setState(() => _isWarrantyCovered = val),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _machineWarrantyStatusText != null
+              ? 'ตรวจสอบจากข้อมูลเครื่องจักร: $_machineWarrantyStatusText'
+              : 'ไม่พบข้อมูลประกันของเครื่องจักรนี้ในระบบ — เปิดสวิตช์เองได้ถ้า'
+                  'ทราบว่ายังอยู่ในประกัน',
+          style: const TextStyle(
+            fontFamily: AppStyles.fontFamily,
+            fontSize: 12,
+            color: AppColors.textSubtitle,
+          ),
+        ),
+        if (_isWarrantyCovered) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.greenBg,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline, color: AppColors.greenText, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'ช่างยังกรอกรายการ/ราคาค่าใช้จ่ายด้านล่างได้ตามปกติเพื่อ'
+                    'บันทึกไว้เป็นหลักฐาน แต่ลูกค้าจะไม่เห็นปุ่มชำระเงินหรือ '
+                    'QR code สำหรับบิลนี้',
+                    style: TextStyle(
+                      fontFamily: AppStyles.fontFamily,
+                      fontSize: 12,
+                      color: AppColors.greenText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1233,6 +1365,22 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
                 ),
               ],
             ),
+            // 🆕 [ใหม่] เตือนย้ำอีกครั้งตรงปุ่มบันทึกว่าบิลนี้ลูกค้าไม่ต้องจ่าย
+            if (_isWarrantyCovered) ...[
+              const SizedBox(height: 4),
+              const Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'ลูกค้าไม่ต้องชำระเงิน (อยู่ในประกัน)',
+                  style: TextStyle(
+                    fontFamily: AppStyles.fontFamily,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.greenText,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,

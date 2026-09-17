@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,9 +13,50 @@ import 'package:after_sales/screens/shared/qr_scanner_page.dart';
 import 'package:after_sales/screens/shared/location_picker_page.dart';
 import 'package:after_sales/utils/serial_number.dart';
 
+class _ThaiTambon {
+  final String name;
+  final String zip;
+  _ThaiTambon(this.name, this.zip);
+}
+
+class _ThaiAmphure {
+  final String name;
+  final List<_ThaiTambon> tambons;
+  _ThaiAmphure(this.name, this.tambons);
+}
+
+class _ThaiProvince {
+  final String name;
+  final List<_ThaiAmphure> amphures;
+  _ThaiProvince(this.name, this.amphures);
+}
+
+String _cleanAddressPrefix(String? text) {
+  if (text == null) return '';
+  var s = text.trim();
+  if (s == '-' || s.isEmpty) return '';
+  const prefixes = [
+    'จังหวัด',
+    'จ.',
+    'จ ',
+    'อำเภอ',
+    'อ.',
+    'อ ',
+    'เขต',
+    'ตำบล',
+    'ต.',
+    'ต ',
+    'แขวง',
+  ];
+  for (final p in prefixes) {
+    if (s.startsWith(p)) {
+      s = s.substring(p.length).trim();
+    }
+  }
+  return s;
+}
+
 class RepairFormScreen extends StatefulWidget {
-  /// เครื่องจักรที่เลือกไว้ล่วงหน้า (เช่น มาจากปุ่ม "แจ้งซ่อม" ในหน้ารายละเอียดเครื่องจักร
-  /// หรือจากการสแกน QR Code) — ถ้าระบุมา ฟอร์มจะเติมข้อมูลเครื่องจักรให้อัตโนมัติ
   final Machine? preselectedMachine;
 
   const RepairFormScreen({super.key, this.preselectedMachine});
@@ -26,37 +68,33 @@ class RepairFormScreen extends StatefulWidget {
 class _RepairFormScreenState extends State<RepairFormScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // Text Controllers
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  // 🟢 แยกที่อยู่เป็นช่องย่อย เพื่อให้ระบบ Geoapify แปลงพิกัดได้แม่นยำขึ้น
   final TextEditingController _houseNoController = TextEditingController();
   final TextEditingController _mooController = TextEditingController();
-  final TextEditingController _tambonController = TextEditingController();
-  final TextEditingController _amphoeController = TextEditingController();
   final TextEditingController _changwatController = TextEditingController();
+  final TextEditingController _amphoeController = TextEditingController();
+  final TextEditingController _tambonController = TextEditingController();
   final TextEditingController _zipCodeController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
 
-  // State Variables
   String _severity = 'ปกติ';
   final List<XFile> _selectedImages = [];
   bool _isLoadingProfile = true;
   bool _isSubmitting = false;
 
-  // 🟢 เครื่องจักรที่เลือกจากการสแกน QR Code (ไม่บังคับ)
   Machine? _selectedMachine;
   bool _isLookingUpMachine = false;
 
-  // พิกัดสำหรับ Geoapify Tracking
   double? _destLat;
   double? _destLng;
-  // 🟢 ต้องให้ลูกค้ายืนยันตำแหน่งบนแผนที่เองก่อนส่งฟอร์ม (ไม่พึ่งผล Geocode อัตโนมัติล้วนๆ)
   bool _isLocationConfirmed = false;
   final bool _isLocating = false;
 
   final ImagePicker _picker = ImagePicker();
   final List<String> _severityOptions = ['ต่ำ', 'ปกติ', 'สูง', 'เร่งด่วน'];
+
+  List<_ThaiProvince> _thaiProvinces = [];
 
   @override
   void initState() {
@@ -65,18 +103,80 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     for (final c in [
       _houseNoController,
       _mooController,
-      _tambonController,
-      _amphoeController,
       _changwatController,
+      _amphoeController,
+      _tambonController,
       _zipCodeController,
     ]) {
       c.addListener(_onAddressFieldChanged);
     }
-    _loadUserProfile();
+    _loadThaiAddressData().then((_) => _loadUserProfile());
   }
 
-  // ถ้าลูกค้าแก้ไขที่อยู่หลังจากปักหมุดยืนยันไปแล้ว ให้ถือว่าหมุดเดิมอาจไม่ตรงกับที่อยู่ใหม่
-  // จึงต้องให้ลูกค้าเปิดแผนที่ยืนยันตำแหน่งอีกครั้งก่อนส่งฟอร์ม
+  Future<void> _loadThaiAddressData() async {
+    try {
+      final raw = await rootBundle.loadString('assets/data/thai_address.json');
+      final List<dynamic> data = jsonDecode(raw);
+      final provinces = data.map((p) {
+        final amphures = (p['amphures'] as List).map((a) {
+          final tambons = (a['tambons'] as List)
+              .map((t) => _ThaiTambon(
+                    t['name'] as String,
+                    t['zip'].toString(),
+                  ))
+              .toList();
+          return _ThaiAmphure(a['name'] as String, tambons);
+        }).toList();
+        return _ThaiProvince(p['name'] as String, amphures);
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _thaiProvinces = provinces;
+      });
+    } catch (e) {
+      debugPrint('โหลดข้อมูลจังหวัด/อำเภอ/ตำบลไม่สำเร็จ: $e');
+    }
+  }
+
+  List<String> get _provinceOptions =>
+      _thaiProvinces.map((p) => p.name).toList();
+
+  List<String> get _amphoeOptions {
+    final province = _changwatController.text.trim();
+    final match = _thaiProvinces.where((p) => p.name == province);
+    if (match.isEmpty) return [];
+    return match.first.amphures.map((a) => a.name).toList();
+  }
+
+  List<String> get _tambonOptions {
+    final province = _changwatController.text.trim();
+    final amphoe = _amphoeController.text.trim();
+    final provinceMatch = _thaiProvinces.where((p) => p.name == province);
+    if (provinceMatch.isEmpty) return [];
+    final amphoeMatch =
+        provinceMatch.first.amphures.where((a) => a.name == amphoe);
+    if (amphoeMatch.isEmpty) return [];
+    return amphoeMatch.first.tambons.map((t) => t.name).toList();
+  }
+
+  void _tryAutoFillPostalCode() {
+    final province = _changwatController.text.trim();
+    final amphoe = _amphoeController.text.trim();
+    final tambon = _tambonController.text.trim();
+
+    final provinceMatch = _thaiProvinces.where((p) => p.name == province);
+    if (provinceMatch.isEmpty) return;
+    final amphoeMatch =
+        provinceMatch.first.amphures.where((a) => a.name == amphoe);
+    if (amphoeMatch.isEmpty) return;
+    final tambonMatch =
+        amphoeMatch.first.tambons.where((t) => t.name == tambon);
+    if (tambonMatch.isEmpty) return;
+
+    _zipCodeController.text = tambonMatch.first.zip;
+  }
+
   void _onAddressFieldChanged() {
     if (_isLocationConfirmed) {
       setState(() => _isLocationConfirmed = false);
@@ -89,15 +189,14 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     _phoneController.dispose();
     _houseNoController.dispose();
     _mooController.dispose();
-    _tambonController.dispose();
-    _amphoeController.dispose();
     _changwatController.dispose();
+    _amphoeController.dispose();
+    _tambonController.dispose();
     _zipCodeController.dispose();
     _descriptionController.dispose();
     super.dispose();
   }
 
-  /// รวมช่องที่อยู่ย่อยทั้งหมดเป็นข้อความที่อยู่เต็ม (ใช้บันทึกงานซ่อม/ค้นหาพิกัดผ่าน Geoapify)
   String _buildFullAddress() {
     final houseNo = _houseNoController.text.trim();
     final moo = _mooController.text.trim();
@@ -106,11 +205,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     final changwat = _changwatController.text.trim();
     final postalCode = _zipCodeController.text.trim();
 
-    // 🔴 [แก้ไข] เขียนคำนำหน้าเต็ม ๆ ("ตำบล"/"อำเภอ"/"จังหวัด") แทนตัวย่อ
-    // ("ต."/"อ."/"จ.") และเติม "ประเทศไทย" ต่อท้าย — ตัวย่อแบบเดิมทำให้
-    // เครื่องมือค้นหาที่อยู่ของ Geoapify จับคู่ชื่อสถานที่ในฐานข้อมูลผิดพลาด
-    // บ่อย เพราะไม่รู้จักตัวย่อเหล่านี้ดีเท่าคำเต็ม ยิ่งไม่มีคำว่า "ประเทศไทย"
-    // กำกับไว้ ยิ่งเสี่ยงจับคู่ไปเจอสถานที่ชื่อคล้ายกันในประเทศอื่นแทน
     final parts = <String>[
       if (houseNo.isNotEmpty) houseNo,
       if (moo.isNotEmpty) 'หมู่ $moo',
@@ -123,8 +217,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     return parts.join(' ').trim();
   }
 
-  /// ตรวจสอบว่า Address มีข้อมูลที่พอจะ geocode ได้จริงหรือไม่
-  /// (ไม่ใช่ค่าว่างเปล่าหรือค่า placeholder '-' ล้วนๆ)
   bool _hasRealAddress(Address addr) {
     bool isReal(String v) => v.trim().isNotEmpty && v.trim() != '-';
     return isReal(addr.houseNo) ||
@@ -133,7 +225,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
         isReal(addr.changwat);
   }
 
-  // 1. ดึงข้อมูลที่อยู่และโปรไฟล์จากฐานข้อมูลตาราง customers มาใส่ช่องกรอกให้อัตโนมัติ
   Future<void> _loadUserProfile() async {
     try {
       final username = Session.currentUsername;
@@ -148,9 +239,9 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
           final phone = profile['phone'] ?? '';
           final houseNo = profile['house_no'] ?? '';
           final moo = profile['moo'] ?? '';
-          final tambon = profile['tambon'] ?? '';
-          final amphoe = profile['amphoe'] ?? '';
-          final changwat = profile['changwat'] ?? '';
+          final changwat = _cleanAddressPrefix(profile['changwat']?.toString());
+          final amphoe = _cleanAddressPrefix(profile['amphoe']?.toString());
+          final tambon = _cleanAddressPrefix(profile['tambon']?.toString());
           final postalCode = profile['postal_code'] ?? '';
 
           setState(() {
@@ -158,32 +249,24 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
             _phoneController.text = phone;
             _houseNoController.text = houseNo;
             _mooController.text = (moo == '-') ? '' : moo;
-            _tambonController.text = tambon;
-            _amphoeController.text = amphoe;
             _changwatController.text = changwat;
+            _amphoeController.text = amphoe;
+            _tambonController.text = tambon;
             _zipCodeController.text = postalCode;
           });
 
-          // 🏭 ถ้ามีเครื่องจักรที่เลือกไว้ล่วงหน้าและมีที่อยู่ติดตั้งจริง
-          // ให้ใช้ที่อยู่ของเครื่องจักรแทนที่อยู่โปรไฟล์ลูกค้า เพราะเป็นจุดที่ช่างต้องไปซ่อมจริง
           final preselected = widget.preselectedMachine;
           if (preselected != null && _hasRealAddress(preselected.address)) {
             final addr = preselected.address;
             setState(() {
               _houseNoController.text = (addr.houseNo == '-') ? '' : addr.houseNo;
               _mooController.text = (addr.moo == '-') ? '' : addr.moo;
-              _tambonController.text = (addr.tambon == '-') ? '' : addr.tambon;
-              _amphoeController.text = (addr.amphoe == '-') ? '' : addr.amphoe;
-              _changwatController.text =
-                  (addr.changwat == '-') ? '' : addr.changwat;
+              _changwatController.text = _cleanAddressPrefix(addr.changwat);
+              _amphoeController.text = _cleanAddressPrefix(addr.amphoe);
+              _tambonController.text = _cleanAddressPrefix(addr.tambon);
               _zipCodeController.text = (addr.zipCode == '-') ? '' : addr.zipCode;
             });
           }
-
-          // 📍 [แก้ไข] ไม่ลอง geocode ที่อยู่เพื่อเดาพิกัดอัตโนมัติแล้ว — ที่อยู่ที่กรอก
-          // ไว้ตรงนี้ใช้เป็นแค่ "ข้อมูลอ้างอิง" (แสดงให้ช่าง/แอดมินเห็นว่าอยู่แถวไหน)
-          // ส่วนตำแหน่งจริงที่ช่างจะไปซ่อม ให้ลูกค้าปักหมุดเองในแผนที่เท่านั้น แม่นกว่า
-          // การเดาจากข้อความที่อยู่เสมอ (บางตำบลไม่มีข้อมูลพิกัดในระบบแผนที่เลย)
         }
       }
     } catch (e) {
@@ -195,8 +278,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     }
   }
 
-  // 1.5 สแกน QR Code บนตัวเครื่องจักร เพื่อดึงหมายเลข Serial Number
-  //     แล้วค้นหาข้อมูลเครื่องจักร (ชื่อเครื่อง / รุ่น) จากฐานข้อมูล
   Future<void> _scanMachineQr() async {
     final scannedValue = await Navigator.of(context).push<String>(
       MaterialPageRoute(
@@ -204,7 +285,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
           title: 'สแกน QR Code เครื่องจักร',
           hintText:
               'นำกล้องส่องไปที่ QR Code บนตัวเครื่องจักรที่ต้องการแจ้งซ่อม',
-          // ✅ ยอมรับเฉพาะ QR Code ที่มีหมายเลข Serial Number (รูปแบบ 2-2-4)
           valueExtractor: extractSerialNumberFromQr,
           invalidValueMessage:
               'QR Code นี้ไม่ใช่หมายเลข Serial Number ($kSerialNumberLength หลัก) ลองสแกนใหม่อีกครั้ง',
@@ -249,10 +329,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     setState(() => _selectedMachine = null);
   }
 
-  // 📍 เปิดหน้าปักหมุดตำแหน่งให้ลูกค้ายืนยันตำแหน่งที่ต้องการให้ช่างมาซ่อมด้วยตัวเอง
-  // [แก้ไข] ไม่ลอง geocode ที่อยู่เพื่อเดาจุดเริ่มต้นอัตโนมัติอีกแล้ว — ให้ลูกค้าปักหมุด
-  // เองทั้งหมด (แม่นกว่าเสมอ) ถ้าเคยปักหมุดไว้แล้วก่อนหน้านี้ในฟอร์มเดียวกัน จะใช้จุดนั้น
-  // เป็นจุดเริ่มต้นต่อ ไม่งั้นเริ่มจากจุดกลางแผนที่เปล่า ๆ ให้เลื่อนหาเอง
   Future<void> _openLocationPicker() async {
     final initLat = _destLat;
     final initLng = _destLng;
@@ -277,7 +353,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     }
   }
 
-  // 2. เลือกรูปภาพจากคลัง (2 - 6 รูป)
   Future<void> _pickImageFromGallery() async {
     try {
       if (_selectedImages.length >= 6) {
@@ -301,7 +376,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     }
   }
 
-  // 3. ถ่ายภาพด้วยกล้อง (2 - 6 รูป)
   Future<void> _pickImageFromCamera() async {
     try {
       if (_selectedImages.length >= 6) {
@@ -350,7 +424,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     );
   }
 
-  // 4. บันทึกข้อมูลลงฐานข้อมูล SQLite ตาราง repairs
   Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -365,13 +438,7 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
       return;
     }
 
-    // 🐛 [แก้บัค] ปิดคีย์บอร์ดก่อนเริ่ม submit เสมอ — เดิมถ้าผู้ใช้กด "แจ้งซ่อม"
-    // ขณะโฟกัสอยู่ที่ช่องกรอกข้อมูล (เช่นเบอร์โทร/รายละเอียด) แล้วหน้านี้ถูก
-    // pop ออกไปทันทีตอนจบ (Navigator.of(context).pop(true)) โดยไม่เคย unfocus
-    // มาก่อนเลย คีย์บอร์ดจะค้างอยู่บนหน้าจอ (โดยเฉพาะฝั่ง iOS ที่ไม่ auto-dismiss
-    // ตอนเปลี่ยนหน้าให้เอง) กดปิดเองไม่ได้ต้องรอ mount ใหม่ถึงหาย
     FocusScope.of(context).unfocus();
-
     setState(() => _isSubmitting = true);
 
     try {
@@ -381,9 +448,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
 
       final fullAddress = _buildFullAddress();
 
-      // 📸 อัปโหลดรูปภาพทั้งหมดขึ้น Cloudinary ก่อน แล้วค่อยรวม URL ที่ได้เป็น String
-      // คั่นด้วยเครื่องหมายจุลภาค (,) — เดิมเก็บแค่ path ไฟล์ในเครื่อง ซึ่งเครื่องอื่น
-      // (เช่นแอดมิน/ช่างที่เปิดดูงานนี้จากอุปกรณ์คนละเครื่อง) เปิดดูไม่ได้เลย
       final imageUrls = await CloudinaryService.uploadImages(_selectedImages);
       final imagePathsString = imageUrls.join(',');
 
@@ -410,11 +474,9 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
         'dest_lng': _destLng,
       };
 
-      // 💾 บันทึกลง SQLite ตาราง repairs
       final newRepairId =
           await DatabaseHelper.instance.createRepair(newRepairData);
 
-      // 🔔 แจ้งเตือนแอดมินทุกคนว่ามีงานแจ้งซ่อมใหม่เข้ามา
       final admins = await DatabaseHelper.instance.getAllAdmins();
       for (final admin in admins) {
         final adminUsername = admin['username']?.toString();
@@ -442,7 +504,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
         ),
       );
 
-      // 🟢 ส่งค่า true กลับ เพื่อให้หน้าหลัก Reload ดึงข้อมูลใหม่
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
@@ -450,6 +511,88 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  Widget _buildAutocompleteField({
+    Key? fieldKey,
+    required String labelText,
+    required String hintText,
+    required TextEditingController controller,
+    required List<String> Function() optionsBuilder,
+    void Function(String selected)? onSelected,
+    String? Function(String?)? validator,
+    bool enabled = true,
+  }) {
+    return Autocomplete<String>(
+      key: fieldKey,
+      initialValue: TextEditingValue(text: controller.text),
+      optionsBuilder: (TextEditingValue value) {
+        if (!enabled) return const Iterable<String>.empty();
+        final options = optionsBuilder();
+        final query = value.text.trim();
+        if (query.isEmpty || query == controller.text.trim()) return options;
+        return options.where((o) => o.contains(query));
+      },
+      displayStringForOption: (o) => o,
+      onSelected: (selection) {
+        controller.text = selection;
+        onSelected?.call(selection);
+      },
+      fieldViewBuilder: (context, fieldController, focusNode, onFieldSubmitted) {
+        return TextFormField(
+          controller: fieldController,
+          focusNode: focusNode,
+          enabled: enabled,
+          style: const TextStyle(fontFamily: AppStyles.fontFamily),
+          decoration: InputDecoration(
+            labelText: labelText,
+            hintText: enabled ? hintText : '$hintText (เลือกข้อมูลก่อนหน้าก่อน)',
+            prefixIcon: const Icon(Icons.location_on, color: AppColors.primary),
+            border: const OutlineInputBorder(),
+            suffixIcon: fieldController.text.isNotEmpty && enabled
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 18, color: AppColors.textHint),
+                    onPressed: () {
+                      fieldController.clear();
+                      controller.clear();
+                      onSelected?.call('');
+                    },
+                  )
+                : const Icon(Icons.arrow_drop_down, color: AppColors.textHint),
+          ),
+          validator: validator,
+          onChanged: (value) {
+            controller.text = value;
+            onSelected?.call(value);
+          },
+        );
+      },
+      optionsViewBuilder: (context, onSelectedOption, options) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220, maxWidth: 320),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, index) {
+                  final option = options.elementAt(index);
+                  return ListTile(
+                    dense: true,
+                    title: Text(option, style: const TextStyle(fontFamily: AppStyles.fontFamily)),
+                    onTap: () => onSelectedOption(option),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -461,7 +604,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
         bottom: false,
         child: Column(
           children: [
-            // 📌 AppHeader รูปแบบเดียวกับทั้งระบบ
             const AppHeader(
               title: 'แบบฟอร์มแจ้งซ่อม',
               showBack: true,
@@ -491,7 +633,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             ),
                             const SizedBox(height: 12),
 
-                            // ชื่อ-นามสกุล
                             TextFormField(
                               controller: _nameController,
                               style: const TextStyle(
@@ -509,7 +650,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            // เบอร์โทรศัพท์
                             TextFormField(
                               controller: _phoneController,
                               keyboardType: TextInputType.phone,
@@ -536,7 +676,7 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            // ที่อยู่ (แยกช่อง เพื่อให้ระบบแผนที่/ติดตามตำแหน่งทำงานได้แม่นยำ)
+                            // ที่อยู่ (เรียงแบบมีตรรกะ: บ้านเลขที่ -> จังหวัด -> อำเภอ -> ตำบล -> รหัสไปรษณีย์)
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -566,7 +706,7 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                                     style: const TextStyle(
                                         fontFamily: AppStyles.fontFamily),
                                     decoration: const InputDecoration(
-                                      labelText: 'หมู่',
+                                      labelText: 'หมู่ (ถ้ามี)',
                                       border: OutlineInputBorder(),
                                     ),
                                   ),
@@ -575,85 +715,101 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            // ตำบล
-                            TextFormField(
-                              controller: _tambonController,
-                              style: const TextStyle(
-                                  fontFamily: AppStyles.fontFamily),
-                              decoration: const InputDecoration(
-                                labelText: 'ตำบล *',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.location_city,
-                                    color: AppColors.primary),
-                              ),
-                              validator: (value) =>
-                                  (value == null || value.trim().isEmpty)
-                                      ? 'กรุณากรอกตำบล'
-                                      : null,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // อำเภอ
-                            TextFormField(
-                              controller: _amphoeController,
-                              style: const TextStyle(
-                                  fontFamily: AppStyles.fontFamily),
-                              decoration: const InputDecoration(
-                                labelText: 'อำเภอ *',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.location_city,
-                                    color: AppColors.primary),
-                              ),
-                              validator: (value) =>
-                                  (value == null || value.trim().isEmpty)
-                                      ? 'กรุณากรอกอำเภอ'
-                                      : null,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // จังหวัด
-                            TextFormField(
+                            _buildAutocompleteField(
+                              fieldKey: ValueKey('changwat_${_changwatController.text}'),
+                              labelText: 'จังหวัด *',
+                              hintText: 'เลือกจังหวัด',
                               controller: _changwatController,
-                              style: const TextStyle(
-                                  fontFamily: AppStyles.fontFamily),
-                              decoration: const InputDecoration(
-                                labelText: 'จังหวัด *',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.map,
-                                    color: AppColors.primary),
-                              ),
-                              validator: (value) =>
-                                  (value == null || value.trim().isEmpty)
-                                      ? 'กรุณากรอกจังหวัด'
-                                      : null,
+                              optionsBuilder: () => _provinceOptions,
+                              validator: (v) => (v == null || v.trim().isEmpty) ? 'กรุณาเลือกจังหวัด' : null,
+                              onSelected: (value) {
+                                setState(() {
+                                  _changwatController.text = value;
+                                  _amphoeController.clear();
+                                  _tambonController.clear();
+                                  _zipCodeController.clear();
+                                });
+                              },
                             ),
                             const SizedBox(height: 16),
 
-                            // รหัสไปรษณีย์
+                            _buildAutocompleteField(
+                              fieldKey: ValueKey('amphoe_${_changwatController.text}_${_amphoeController.text}'),
+                              labelText: 'อำเภอ / เขต *',
+                              hintText: 'เลือกอำเภอ / เขต',
+                              controller: _amphoeController,
+                              enabled: _changwatController.text.trim().isNotEmpty,
+                              optionsBuilder: () => _amphoeOptions,
+                              validator: (v) => (v == null || v.trim().isEmpty) ? 'กรุณาเลือกอำเภอ / เขต' : null,
+                              onSelected: (value) {
+                                setState(() {
+                                  _amphoeController.text = value;
+                                  _tambonController.clear();
+                                  _zipCodeController.clear();
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            _buildAutocompleteField(
+                              fieldKey: ValueKey('tambon_${_changwatController.text}_${_amphoeController.text}_${_tambonController.text}'),
+                              labelText: 'ตำบล / แขวง *',
+                              hintText: 'เลือกตำบล / แขวง',
+                              controller: _tambonController,
+                              enabled: _changwatController.text.trim().isNotEmpty &&
+                                  _amphoeController.text.trim().isNotEmpty,
+                              optionsBuilder: () => _tambonOptions,
+                              validator: (v) => (v == null || v.trim().isEmpty) ? 'กรุณาเลือกตำบล / แขวง' : null,
+                              onSelected: (value) {
+                                setState(() {
+                                  _tambonController.text = value;
+                                  _tryAutoFillPostalCode();
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
                             TextFormField(
                               controller: _zipCodeController,
+                              readOnly: true,
                               keyboardType: TextInputType.number,
                               style: const TextStyle(
                                   fontFamily: AppStyles.fontFamily),
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(5),
-                              ],
                               decoration: const InputDecoration(
-                                labelText: 'รหัสไปรษณีย์ *',
+                                labelText: 'รหัสไปรษณีย์ (กรอกอัตโนมัติ) *',
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.markunread_mailbox,
                                     color: AppColors.primary),
                               ),
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
-                                  return 'กรุณากรอกรหัสไปรษณีย์';
-                                }
-                                if (value.length != 5) {
-                                  return 'รหัสไปรษณีย์ต้องมี 5 หลัก';
+                                  return 'กรุณาระบุรหัสไปรษณีย์';
                                 }
                                 return null;
                               },
+                            ),
+                            const SizedBox(height: 8),
+
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.info_outline,
+                                    size: 15, color: Colors.grey.shade600),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'ที่อยู่ด้านบนใช้เป็นข้อมูลอ้างอิงเท่านั้น '
+                                    'ตำแหน่งจริงที่ช่างจะไปซ่อมให้ยึดตามหมุดที่ปัก'
+                                    'ในแผนที่ด้านล่างเป็นหลัก',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontFamily: AppStyles.fontFamily,
+                                      color: Colors.grey.shade600,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 24),
 
@@ -694,7 +850,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             ),
                             const SizedBox(height: 12),
 
-                            // ระดับความรุนแรง
                             DropdownButtonFormField<String>(
                               initialValue: _severity,
                               style: const TextStyle(
@@ -721,7 +876,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            // รายละเอียดปัญหา
                             TextFormField(
                               controller: _descriptionController,
                               maxLines: 4,
@@ -741,7 +895,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // ส่วนแนบรูปภาพ
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -813,8 +966,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     );
   }
 
-  /// การ์ดแสดง/เลือกเครื่องจักร ด้วยการสแกน QR Code
-  /// การ์ดปักหมุด/ยืนยันตำแหน่งที่ตั้งของลูกค้า ที่จะส่งให้ช่างและแอดมินดู
   Widget _buildLocationSection() {
     if (_isLocationConfirmed && _destLat != null && _destLng != null) {
       return Container(
@@ -923,16 +1074,14 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LocalOrNetworkImage(
+                path: machine.photoUrl,
+                width: 44,
+                height: 44,
+                fit: BoxFit.cover,
               ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.precision_manufacturing,
-                  color: Colors.white, size: 24),
             ),
             const SizedBox(width: 12),
             Expanded(

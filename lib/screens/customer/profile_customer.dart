@@ -1,37 +1,74 @@
+import 'dart:convert';
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/widgets.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:image_picker/image_picker.dart';
 
 import 'change_email_screen.dart';
 import 'machine_list_page.dart';
-
 
 class ProfileCustomer extends StatelessWidget {
   const ProfileCustomer({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // 📌 แก้ไข: ถอด MaterialApp ที่ซ้อนอยู่ออก เพราะหน้านี้ถูกฝังอยู่ใน
-    // RootShell (ผ่าน Navigator ของแท็บ) อยู่แล้ว การมี MaterialApp ซ้อน
-    // จะสร้าง Navigator root ใหม่แยกต่างหาก ทำให้ปุ่ม back / bottomNavigationBar
-    // ของ RootShell หลุดหายไปเมื่อเข้ามาที่แท็บ Profile
     return const UserProfilePage();
   }
 }
 
-/// User profile model - ตอนนี้โหลด/บันทึกจริงกับตาราง `customers` ผ่าน DatabaseHelper
+/// โครงสร้างข้อมูลจังหวัด/อำเภอ/ตำบล/รหัสไปรษณีย์
+class _ThaiTambon {
+  final String name;
+  final String zip;
+  _ThaiTambon(this.name, this.zip);
+}
+
+class _ThaiAmphure {
+  final String name;
+  final List<_ThaiTambon> tambons;
+  _ThaiAmphure(this.name, this.tambons);
+}
+
+class _ThaiProvince {
+  final String name;
+  final List<_ThaiAmphure> amphures;
+  _ThaiProvince(this.name, this.amphures);
+}
+
+String _cleanAddressPrefix(String? text) {
+  if (text == null) return '';
+  var s = text.trim();
+  if (s == '-' || s.isEmpty) return '';
+  const prefixes = [
+    'จังหวัด',
+    'จ.',
+    'จ ',
+    'อำเภอ',
+    'อ.',
+    'อ ',
+    'เขต',
+    'ตำบล',
+    'ต.',
+    'ต ',
+    'แขวง',
+  ];
+  for (final p in prefixes) {
+    if (s.startsWith(p)) {
+      s = s.substring(p.length).trim();
+    }
+  }
+  return s;
+}
+
+/// User profile model
 class UserProfile {
   String username;
   String fullName;
   String company;
   String email;
   String address;
-  // 🔴 [แก้ไข] เพิ่มฟิลด์ที่อยู่แบบแยกส่วน (บ้านเลขที่/หมู่/ตำบล/อำเภอ/จังหวัด/รหัสไปรษณีย์)
-  // ตรงกับคอลัมน์จริงที่หน้าแจ้งซ่อม (repair_form.dart) อ่านไปใช้ดึงข้อมูลอัตโนมัติ
-  // เดิมหน้าโปรไฟล์แก้ไขได้แค่ฟิลด์ 'address' ตัวเดียว ซึ่งเป็นคนละคอลัมน์กับที่
-  // หน้าแจ้งซ่อมใช้จริง แก้ตรงนี้แล้วไม่มีผลกับหน้าแจ้งซ่อมเลย ตอนนี้แก้ให้ตรงกัน
   String houseNo;
   String moo;
   String tambon;
@@ -59,7 +96,6 @@ class UserProfile {
     this.photoUrl = '',
   });
 
-  /// แปลงจาก row ของตาราง `customers` + จำนวนเครื่องจักรที่ query แยกมา
   factory UserProfile.fromMap(
     Map<String, dynamic> map, {
     int machineCount = 0,
@@ -84,8 +120,6 @@ class UserProfile {
     );
   }
 
-  /// รวมฟิลด์ที่อยู่แยกส่วนเป็นข้อความเดียวสำหรับแสดงผล — ถ้ายังไม่กรอกอะไรเลย
-  /// จะโชว์ '-' เหมือนฟิลด์อื่น ๆ ในหน้าโปรไฟล์
   String get formattedAddress {
     final parts = <String>[
       if (houseNo.isNotEmpty) houseNo,
@@ -108,10 +142,6 @@ class UserProfilePage extends StatefulWidget {
 
 class _UserProfilePageState extends State<UserProfilePage> {
   bool _loading = true;
-  // 🔴 [แก้ไข] เพิ่มโหมด "แก้ไขโปรไฟล์" — เดิมปุ่มนี้กดแล้วไม่ทำอะไรเลย (แค่ขึ้น
-  // toast ลอย ๆ) ทั้งที่ดินสอแก้ไขแต่ละแถวโชว์อยู่ตลอดเวลาอยู่แล้วโดยไม่ต้องกด
-  // ปุ่มนี้ก่อน ตอนนี้สลับเป็น: ปกติซ่อนดินสอไว้ก่อน กดปุ่มแล้วค่อยโชว์ดินสอ
-  // ทุกแถวพร้อมกัน แล้วปุ่มเปลี่ยนเป็น "เสร็จสิ้น" ให้กดปิดโหมดแก้ไขได้
   bool _isEditMode = false;
   UserProfile _profile = UserProfile(
     username: '-',
@@ -123,10 +153,39 @@ class _UserProfilePageState extends State<UserProfilePage> {
     machineCount: 0,
   );
 
+  List<_ThaiProvince> _thaiProvinces = [];
+
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _loadThaiAddressData();
+  }
+
+  Future<void> _loadThaiAddressData() async {
+    try {
+      final raw = await rootBundle.loadString('assets/data/thai_address.json');
+      final List<dynamic> data = jsonDecode(raw);
+      final provinces = data.map((p) {
+        final amphures = (p['amphures'] as List).map((a) {
+          final tambons = (a['tambons'] as List)
+              .map((t) => _ThaiTambon(
+                    t['name'] as String,
+                    t['zip'].toString(),
+                  ))
+              .toList();
+          return _ThaiAmphure(a['name'] as String, tambons);
+        }).toList();
+        return _ThaiProvince(p['name'] as String, amphures);
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _thaiProvinces = provinces;
+      });
+    } catch (e) {
+      debugPrint('โหลดข้อมูลจังหวัด/อำเภอ/ตำบลไม่สำเร็จ: $e');
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -231,9 +290,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
   }
 
-  /// ✏️ เปลี่ยนอีเมล — ต่างจากฟิลด์อื่นตรงที่อีเมลผูกกับการยืนยันตัวตน
-  /// (เช่นหน้าลืมรหัสผ่าน) จึงต้องยืนยันความเป็นเจ้าของอีเมลเดิมด้วย OTP ก่อน
-  /// แล้วค่อยยืนยันว่าเข้าถึงอีเมลใหม่ได้จริง แทนที่จะแก้ไขตรง ๆ แบบฟิลด์ทั่วไป
   Future<void> _editEmail() async {
     final newEmail = await Navigator.of(context).push<String>(
       MaterialPageRoute(
@@ -248,14 +304,17 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
   }
 
-  /// ✏️ แก้ไขที่อยู่แบบแยกฟิลด์ (บ้านเลขที่/หมู่/ตำบล/อำเภอ/จังหวัด/รหัสไปรษณีย์)
-  /// แทนที่จะให้กรอกรวมเป็นบรรทัดเดียว — ตรงกับฟิลด์ที่หน้าแจ้งซ่อมใช้จริง
+  /// ✏️ แก้ไขที่อยู่แบบ Dropdown เลือก จังหวัด -> อำเภอ -> ตำบล และกรอกรหัสไปรษณีย์อัตโนมัติ
   Future<void> _editAddress() async {
+    if (_thaiProvinces.isEmpty) {
+      await _loadThaiAddressData();
+    }
+
     final houseNoCtrl = TextEditingController(text: _profile.houseNo);
     final mooCtrl = TextEditingController(text: _profile.moo);
-    final tambonCtrl = TextEditingController(text: _profile.tambon);
-    final amphoeCtrl = TextEditingController(text: _profile.amphoe);
-    final changwatCtrl = TextEditingController(text: _profile.changwat);
+    final changwatCtrl = TextEditingController(text: _cleanAddressPrefix(_profile.changwat));
+    final amphoeCtrl = TextEditingController(text: _cleanAddressPrefix(_profile.amphoe));
+    final tambonCtrl = TextEditingController(text: _cleanAddressPrefix(_profile.tambon));
     final zipCtrl = TextEditingController(text: _profile.postalCode);
 
     final saved = await showModalBottomSheet<bool>(
@@ -263,125 +322,253 @@ class _UserProfilePageState extends State<UserProfilePage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-          ),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: AppColors.border,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+        return StatefulBuilder(
+          builder: (sheetContext, setModalState) {
+            List<String> getProvinceOptions() =>
+                _thaiProvinces.map((p) => p.name).toList();
+
+            List<String> getAmphoeOptions() {
+              final prov = changwatCtrl.text.trim();
+              final match = _thaiProvinces.where((p) => p.name == prov);
+              if (match.isEmpty) return [];
+              return match.first.amphures.map((a) => a.name).toList();
+            }
+
+            List<String> getTambonOptions() {
+              final prov = changwatCtrl.text.trim();
+              final amp = amphoeCtrl.text.trim();
+              final provMatch = _thaiProvinces.where((p) => p.name == prov);
+              if (provMatch.isEmpty) return [];
+              final ampMatch = provMatch.first.amphures.where((a) => a.name == amp);
+              if (ampMatch.isEmpty) return [];
+              return ampMatch.first.tambons.map((t) => t.name).toList();
+            }
+
+            void tryAutoFillZip() {
+              final prov = changwatCtrl.text.trim();
+              final amp = amphoeCtrl.text.trim();
+              final tam = tambonCtrl.text.trim();
+              final provMatch = _thaiProvinces.where((p) => p.name == prov);
+              if (provMatch.isEmpty) return;
+              final ampMatch = provMatch.first.amphures.where((a) => a.name == amp);
+              if (ampMatch.isEmpty) return;
+              final tamMatch = ampMatch.first.tambons.where((t) => t.name == tam);
+              if (tamMatch.isEmpty) return;
+              zipCtrl.text = tamMatch.first.zip;
+            }
+
+            Widget buildAutocompleteDropdown({
+              Key? key,
+              required String hintText,
+              required TextEditingController controller,
+              required List<String> Function() optionsBuilder,
+              void Function(String selected)? onSelected,
+              bool enabled = true,
+            }) {
+              return Autocomplete<String>(
+                key: key,
+                initialValue: TextEditingValue(text: controller.text),
+                optionsBuilder: (TextEditingValue value) {
+                  if (!enabled) return const Iterable<String>.empty();
+                  final options = optionsBuilder();
+                  final query = value.text.trim();
+                  if (query.isEmpty || query == controller.text.trim()) return options;
+                  return options.where((o) => o.contains(query));
+                },
+                displayStringForOption: (o) => o,
+                onSelected: (selection) {
+                  controller.text = selection;
+                  onSelected?.call(selection);
+                },
+                fieldViewBuilder: (context, fieldController, focusNode, onFieldSubmitted) {
+                  return TextField(
+                    controller: fieldController,
+                    focusNode: focusNode,
+                    enabled: enabled,
+                    style: const TextStyle(fontFamily: AppStyles.fontFamily),
+                    decoration: InputDecoration(
+                      labelText: hintText,
+                      hintText: enabled ? hintText : '$hintText (เลือกข้อมูลก่อนหน้าก่อน)',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: fieldController.text.isNotEmpty && enabled
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18, color: AppColors.textHint),
+                              onPressed: () {
+                                fieldController.clear();
+                                controller.clear();
+                                onSelected?.call('');
+                              },
+                            )
+                          : const Icon(Icons.arrow_drop_down, color: AppColors.textHint),
                     ),
-                  ),
-                  const Text(
-                    'แก้ไขที่อยู่',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: AppStyles.fontFamily,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textMain,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: TextField(
-                          controller: houseNoCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'บ้านเลขที่',
-                            border: OutlineInputBorder(),
-                          ),
+                    onChanged: (value) {
+                      controller.text = value;
+                      onSelected?.call(value);
+                    },
+                  );
+                },
+                optionsViewBuilder: (context, onSelectedOption, options) {
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(8),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 200, maxWidth: 320),
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: options.length,
+                          itemBuilder: (context, index) {
+                            final option = options.elementAt(index);
+                            return ListTile(
+                              dense: true,
+                              title: Text(option, style: const TextStyle(fontFamily: AppStyles.fontFamily)),
+                              onTap: () => onSelectedOption(option),
+                            );
+                          },
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: mooCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'หมู่',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: tambonCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'ตำบล',
-                      border: OutlineInputBorder(),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: amphoeCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'อำเภอ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: changwatCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'จังหวัด',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: zipCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'รหัสไปรษณีย์',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: () => Navigator.pop(sheetContext, true),
-                      child: const Text('บันทึก'),
-                    ),
-                  ),
-                ],
+                  );
+                },
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
               ),
-            ),
-          ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.border,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const Text(
+                        'แก้ไขที่อยู่',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: AppStyles.fontFamily,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textMain,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: houseNoCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'บ้านเลขที่',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: mooCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'หมู่ (ถ้ามี)',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      buildAutocompleteDropdown(
+                        key: ValueKey('changwat_${changwatCtrl.text}'),
+                        hintText: 'จังหวัด',
+                        controller: changwatCtrl,
+                        optionsBuilder: getProvinceOptions,
+                        onSelected: (value) {
+                          setModalState(() {
+                            changwatCtrl.text = value;
+                            amphoeCtrl.clear();
+                            tambonCtrl.clear();
+                            zipCtrl.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      buildAutocompleteDropdown(
+                        key: ValueKey('amphoe_${changwatCtrl.text}_${amphoeCtrl.text}'),
+                        hintText: 'อำเภอ / เขต',
+                        controller: amphoeCtrl,
+                        enabled: changwatCtrl.text.trim().isNotEmpty,
+                        optionsBuilder: getAmphoeOptions,
+                        onSelected: (value) {
+                          setModalState(() {
+                            amphoeCtrl.text = value;
+                            tambonCtrl.clear();
+                            zipCtrl.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      buildAutocompleteDropdown(
+                        key: ValueKey('tambon_${changwatCtrl.text}_${amphoeCtrl.text}_${tambonCtrl.text}'),
+                        hintText: 'ตำบล / แขวง',
+                        controller: tambonCtrl,
+                        enabled: changwatCtrl.text.trim().isNotEmpty &&
+                            amphoeCtrl.text.trim().isNotEmpty,
+                        optionsBuilder: getTambonOptions,
+                        onSelected: (value) {
+                          setModalState(() {
+                            tambonCtrl.text = value;
+                            tryAutoFillZip();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: zipCtrl,
+                        readOnly: true,
+                        decoration: const InputDecoration(
+                          labelText: 'รหัสไปรษณีย์ (กรอกอัตโนมัติ)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          onPressed: () => Navigator.pop(sheetContext, true),
+                          child: const Text('บันทึก'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -390,23 +577,24 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
     final houseNo = houseNoCtrl.text.trim();
     final moo = mooCtrl.text.trim();
-    final tambon = tambonCtrl.text.trim();
-    final amphoe = amphoeCtrl.text.trim();
     final changwat = changwatCtrl.text.trim();
+    final amphoe = amphoeCtrl.text.trim();
+    final tambon = tambonCtrl.text.trim();
     final postalCode = zipCtrl.text.trim();
 
     setState(() {
       _profile.houseNo = houseNo;
       _profile.moo = moo;
-      _profile.tambon = tambon;
-      _profile.amphoe = amphoe;
       _profile.changwat = changwat;
+      _profile.amphoe = amphoe;
+      _profile.tambon = tambon;
       _profile.postalCode = postalCode;
     });
 
     await db.DatabaseHelper.instance.updateCustomerProfile(
       _profile.username,
       {
+        'address': _profile.formattedAddress,
         'house_no': houseNo,
         'moo': moo,
         'tambon': tambon,
@@ -421,23 +609,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   Future<void> _editProfilePicture() async {
     try {
-      // 🔴 [แก้บั๊ก] เดิมย่อขนาด+บีบอัดตั้งแต่ตอน "เลือกรูป" ตรงนี้เลย (maxWidth/
-      // maxHeight/imageQuality) ทำให้รูปทั้งใบถูกย่อเหลือ 640×640 ก่อนที่ผู้ใช้จะ
-      // ได้ครอป พอครอปเอาแค่บางส่วนของรูปที่ย่อไปแล้ว เลยเหลือพิกเซลน้อยมาก พอถูก
-      // ขยายแสดงในวงกลมโปรไฟล์เลยแตก/เบลอ ตอนนี้เปลี่ยนให้เลือกรูปที่ความละเอียด
-      // เต็มไปก่อน แล้วไปย่อ/บีบอัด "หลังครอปเสร็จแล้ว" แทน (ดู cropProfileImage()
-      // ใน widgets.dart ที่ตั้ง maxWidth/maxHeight: 640 ไว้ตรงนั้นแล้ว)
       final picked = await _picker.pickImage(source: ImageSource.gallery);
       if (picked == null) return;
       if (!mounted) return;
-      // 🔴 [ใหม่] ให้ผู้ใช้ครอปรูปเป็นวงกลมเองก่อนอัปโหลด กันรูปเบี้ยว/โดนตัด
-      // หัวตัดขาตอนไปแสดงในวงกลมโปรไฟล์ (ดู cropProfileImage() ใน widgets.dart)
       final cropped = await cropProfileImage(picked);
       if (cropped == null) return;
       if (!mounted) return;
-      // 🔴 อัปโหลดขึ้น Cloudinary แทนการเก็บแค่ path ไฟล์ในเครื่อง เพื่อให้คนอื่นที่
-      // ล็อกอินจากเครื่อง/บัญชีอื่นเห็นรูปนี้ได้จริงผ่าน Firebase (ดูรายละเอียดเหตุผลที่
-      // uploadPickedImage() ใน widgets.dart)
       final photoUrl = await uploadPickedImage(cropped);
       if (!mounted) return;
       setState(() => _profile.photoUrl = photoUrl);
@@ -458,116 +635,114 @@ class _UserProfilePageState extends State<UserProfilePage> {
         bottom: false,
         child: Column(
           children: [
-            // 🔒 หัวเรื่องล็อกอยู่นิ่ง ไม่เลื่อนตามเนื้อหา
             _Header(),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : RefreshIndicator(
-                onRefresh: _loadProfile,
-                child: ListView(
-                  padding: const EdgeInsets.only(bottom: 32),
-                  children: [
-                    _AvatarSection(
-                      photoUrl: _profile.photoUrl,
-                      onEdit: _editProfilePicture,
-                    ),
-                    const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.black.withValues(alpha: 0.06),
+                      onRefresh: _loadProfile,
+                      child: ListView(
+                        padding: const EdgeInsets.only(bottom: 32),
+                        children: [
+                          _AvatarSection(
+                            photoUrl: _profile.photoUrl,
+                            onEdit: _editProfilePicture,
                           ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x14000000),
-                              blurRadius: 6,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _SectionHeader(
-                              isEditMode: _isEditMode,
-                              onEditAll: () {
-                                setState(() => _isEditMode = !_isEditMode);
-                              },
-                            ),
-                            _ProfileRow(
-                              label: 'ชื่อผู้ใช้',
-                              value: _profile.username,
-                              editable: false,
-                            ),
-                            _ProfileRow(
-                              label: 'ชื่อ-นามสกุล',
-                              value: _profile.fullName,
-                              isEditMode: _isEditMode,
-                              onEdit: _editFullName,
-                            ),
-                            _ProfileRow(
-                              label: 'บริษัท',
-                              value: _profile.company,
-                              isEditMode: _isEditMode,
-                              onEdit: () => _editField(
-                                label: 'บริษัท',
-                                currentValue: _profile.company,
-                                dbColumn: 'company',
-                                onSaved: (v) => _profile.company = v,
-                              ),
-                            ),
-                            _ProfileRow(
-                              label: 'อีเมล',
-                              value: _profile.email,
-                              isEditMode: _isEditMode,
-                              onEdit: _editEmail,
-                            ),
-                            _ProfileRow(
-                              label: 'ที่อยู่',
-                              value: _profile.formattedAddress,
-                              isEditMode: _isEditMode,
-                              onEdit: _editAddress,
-                            ),
-                            _ProfileRow(
-                              label: 'หมายเลขโทรศัพท์',
-                              value: _profile.phone,
-                              isEditMode: _isEditMode,
-                              onEdit: () => _editField(
-                                label: 'หมายเลขโทรศัพท์',
-                                currentValue: _profile.phone,
-                                dbColumn: 'phone',
-                                onSaved: (v) => _profile.phone = v,
-                                keyboardType: TextInputType.phone,
-                              ),
-                            ),
-                            _ProfileRow(
-                              label: 'จำนวนเครื่องที่มี',
-                              value: '${_profile.machineCount}',
-                              editable: false,
-                              isLast: true,
-                              onTap: () {
-                                // ไปหน้ารายการเครื่องจักรที่ดึงจากฐานข้อมูลจริง
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        const MachineListPage(),
+                          const SizedBox(height: 16),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.black.withValues(alpha: 0.06),
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x14000000),
+                                    blurRadius: 6,
+                                    offset: Offset(0, 2),
                                   ),
-                                );
-                              },
+                                ],
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _SectionHeader(
+                                    isEditMode: _isEditMode,
+                                    onEditAll: () {
+                                      setState(() => _isEditMode = !_isEditMode);
+                                    },
+                                  ),
+                                  _ProfileRow(
+                                    label: 'ชื่อผู้ใช้',
+                                    value: _profile.username,
+                                    editable: false,
+                                  ),
+                                  _ProfileRow(
+                                    label: 'ชื่อ-นามสกุล',
+                                    value: _profile.fullName,
+                                    isEditMode: _isEditMode,
+                                    onEdit: _editFullName,
+                                  ),
+                                  _ProfileRow(
+                                    label: 'บริษัท',
+                                    value: _profile.company,
+                                    isEditMode: _isEditMode,
+                                    onEdit: () => _editField(
+                                      label: 'บริษัท',
+                                      currentValue: _profile.company,
+                                      dbColumn: 'company',
+                                      onSaved: (v) => _profile.company = v,
+                                    ),
+                                  ),
+                                  _ProfileRow(
+                                    label: 'อีเมล',
+                                    value: _profile.email,
+                                    isEditMode: _isEditMode,
+                                    onEdit: _editEmail,
+                                  ),
+                                  _ProfileRow(
+                                    label: 'ที่อยู่',
+                                    value: _profile.formattedAddress,
+                                    isEditMode: _isEditMode,
+                                    onEdit: _editAddress,
+                                  ),
+                                  _ProfileRow(
+                                    label: 'หมายเลขโทรศัพท์',
+                                    value: _profile.phone,
+                                    isEditMode: _isEditMode,
+                                    onEdit: () => _editField(
+                                      label: 'หมายเลขโทรศัพท์',
+                                      currentValue: _profile.phone,
+                                      dbColumn: 'phone',
+                                      onSaved: (v) => _profile.phone = v,
+                                      keyboardType: TextInputType.phone,
+                                    ),
+                                  ),
+                                  _ProfileRow(
+                                    label: 'จำนวนเครื่องที่มี',
+                                    value: '${_profile.machineCount}',
+                                    editable: false,
+                                    isLast: true,
+                                    onTap: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const MachineListPage(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -579,9 +754,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
 class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    // 🐛 [แก้บัค] เอาปุ่มย้อนกลับออกจากหน้าโปรไฟล์ลูกค้าโดยเฉพาะ (ตามที่ขอ) —
-    // หน้านี้เป็นแท็บล่างของแอป (root ของ Navigator เฉพาะแท็บ) ปุ่มย้อนกลับเดิม
-    // จึงไม่มีความหมายอยู่แล้วด้วย ไม่แตะหน้าโปรไฟล์ของแอดมิน/ช่าง
     return const AppHeader(
       title: 'โปรไฟล์',
       showBack: false,
@@ -650,8 +822,6 @@ class _AvatarSection extends StatelessWidget {
 
 class _SectionHeader extends StatelessWidget {
   final VoidCallback onEditAll;
-  // 🔴 [แก้ไข] สลับข้อความ/ไอคอนปุ่มตามโหมดปัจจุบัน — โหมดแก้ไข: โชว์ปุ่ม
-  // "เสร็จสิ้น" ให้กดออกจากโหมดแก้ไขได้ (ตามที่ขอเพิ่ม)
   final bool isEditMode;
   const _SectionHeader({required this.onEditAll, required this.isEditMode});
 
@@ -702,8 +872,6 @@ class _ProfileRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool editable;
   final bool isLast;
-  // 🔴 [แก้ไข] ดินสอแก้ไขจะโชว์ก็ต่อเมื่อ editable=true (ฟิลด์นี้แก้ไขได้จริง)
-  // และ isEditMode=true (กดปุ่ม "แก้ไขโปรไฟล์" แล้ว) พร้อมกันทั้งสองเงื่อนไข
   final bool isEditMode;
 
   const _ProfileRow({

@@ -399,7 +399,10 @@ function TechnicianAssignBox({ job, technicians, currentTech }) {
           <p><span className="text-slate-400">เบอร์โทร:</span> {currentTech?.phone || "-"}</p>
           <p><span className="text-slate-400">สถานะช่าง:</span> {currentTech?.status || "ว่าง"}</p>
           {(job.date || job.time) ? (
-            <p><span className="text-slate-400">วันนัดหมาย:</span> {displayStoredDate(job.date)} {job.time || ""}</p>
+            <p>
+              <span className="text-slate-400">วันนัดหมาย:</span> {displayStoredDate(job.date)}
+              {job.time ? ` เวลา ${job.time} น.` : ""}
+            </p>
           ) : null}
           <p><span className="text-slate-400">ยานพาหนะ:</span> {currentTech?.vehicle || "-"}</p>
         </div>
@@ -750,7 +753,13 @@ export default function JobDetailModal({ job: jobProp, onClose, onNavigate }) {
             <button
               onClick={() => {
                 onClose();
-                onNavigate("chat", { query: String(job.id) });
+                // 🐛 [แก้ไข] BUG: เดิมส่ง job.id (คีย์จริงใน Firebase เช่น
+                // "k18") ไปเป็นคำค้น — แต่หน้าแชท (ChatPage.jsx) หาห้องแชทที่
+                // ตรงกันด้วย record_id (เลข id จริงของงาน) เป็นหลัก คีย์
+                // Firebase ไม่มีทาง match กับเลขนั้นได้เลย เลยเด้งไปหน้าแชท
+                // เฉยๆ โดยไม่ได้เปิดห้องของงานนี้ให้อัตโนมัติ แก้ให้ส่ง
+                // record_id แทน (fallback เป็น id ถ้าไม่มี record_id จริงๆ)
+                onNavigate("chat", { query: String(job.record_id ?? job.id) });
               }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
             >

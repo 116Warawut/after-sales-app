@@ -459,6 +459,7 @@ const DEFAULT_SETTINGS = {
   itemsPerPageDashboard: "10",
   itemsPerPageJobs: "20",
   itemsPerPageParts: "20",
+  itemsPerPagePartRequests: "20",
   itemsPerPageFinance: "20",
   itemsPerPageNotifications: "20",
   openTime: "08:00",
@@ -488,6 +489,7 @@ const PERSONAL_SETTING_KEYS = [
   "itemsPerPageDashboard",
   "itemsPerPageJobs",
   "itemsPerPageParts",
+  "itemsPerPagePartRequests",
   "itemsPerPageFinance",
   "itemsPerPageNotifications",
   "currency",
@@ -729,6 +731,12 @@ export default function SettingsPage() {
               label="อะไหล่ (หน้า อะไหล่)"
               value={settings.itemsPerPageParts}
               onChange={(v) => updateSetting("itemsPerPageParts", v)}
+              options={PAGE_SIZE_5_50}
+            />
+            <SelectField
+              label="รายการเบิกอะไหล่ (Pop-up ดูทั้งหมด)"
+              value={settings.itemsPerPagePartRequests}
+              onChange={(v) => updateSetting("itemsPerPagePartRequests", v)}
               options={PAGE_SIZE_5_50}
             />
             <SelectField

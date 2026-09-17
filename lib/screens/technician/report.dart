@@ -4,6 +4,10 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+// 🆕 [ใหม่] ใช้ Machine.warrantyActive เพื่อตรวจสอบว่าเครื่องจักรของงานซ่อมนี้
+// อยู่ในประกันหรือไม่ — ถ้าอยู่ในประกันไม่ต้องบังคับแนบสลิปโอนเงิน (ดู
+// _loadWarrantyInfo() และ _submit() ด้านล่าง)
+import 'package:after_sales/screens/customer/machine_models.dart';
 
 class Report extends StatelessWidget {
   final int repairId;
@@ -44,10 +48,18 @@ class _ReportPageState extends State<ReportPage> {
   // ถ้ามีค่านี้อยู่ = ลูกค้าจ่ายและแนบสลิปมาก่อนแล้ว ช่างไม่ต้องขอสลิปซ้ำ/อัปโหลดเอง
   String? _customerSlipUrl;
 
+  // 🆕 [ใหม่] เครื่องจักรของงานซ่อมนี้อยู่ในประกันหรือไม่ — ถ้าอยู่ในประกัน
+  // ไม่มีการชำระเงินจริง จึงไม่บังคับแนบสลิปโอนเงินในหน้านี้ (ดู
+  // _loadWarrantyInfo() / _submit())
+  bool _isWarrantyCovered = false;
+  bool _loadingWarrantyInfo = true;
+  String? _machineWarrantyStatusText;
+
   @override
   void initState() {
     super.initState();
     _loadTicketNumber();
+    _loadWarrantyInfo();
   }
 
   /// 🏷️ ดึงเลขที่ใบแจ้งซ่อม (เช่น AS-291954) มาใส่ในช่อง "รหัสฟอร์มซ่อม" ให้อัตโนมัติ
@@ -74,6 +86,40 @@ class _ReportPageState extends State<ReportPage> {
       debugPrint('Error loading ticket number: $e');
       if (!mounted) return;
       setState(() => _loadingTicket = false);
+    }
+  }
+
+  /// 🛡️ [ใหม่] ดึง machine_id จากงานซ่อมนี้ แล้วเช็คสถานะประกันของเครื่องจักร
+  /// (Machine.warrantyActive) — ถ้าอยู่ในประกัน ไม่บังคับแนบสลิปโอนเงินในหน้านี้
+  /// (เหมือนกับตอนออกบิลที่ admin_create_invoice.dart เช็คแบบเดียวกัน)
+  Future<void> _loadWarrantyInfo() async {
+    try {
+      final repair =
+          await db.DatabaseHelper.instance.getRepairById(widget.repairId);
+      final machineId = repair?['machine_id'];
+      if (machineId == null) {
+        if (!mounted) return;
+        setState(() => _loadingWarrantyInfo = false);
+        return;
+      }
+
+      final machineMap =
+          await db.DatabaseHelper.instance.getMachineById(machineId);
+      if (machineMap == null || !mounted) {
+        if (mounted) setState(() => _loadingWarrantyInfo = false);
+        return;
+      }
+
+      final machine = Machine.fromMap(machineMap);
+      setState(() {
+        _isWarrantyCovered = machine.warrantyActive;
+        _machineWarrantyStatusText = machine.warrantyStatusText;
+        _loadingWarrantyInfo = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading warranty info for report: $e');
+      if (!mounted) return;
+      setState(() => _loadingWarrantyInfo = false);
     }
   }
 
@@ -131,16 +177,28 @@ class _ReportPageState extends State<ReportPage> {
   }
 
   Future<void> _submit() async {
+    // 🆕 [ใหม่] กันกดส่งเร็วเกินไปก่อนเช็คประกันเสร็จ — ถ้ายังไม่รู้ผลแน่ชัด อาจ
+    // บังคับให้แนบสลิปทั้งที่จริงเป็นเครื่องประกัน (ไม่ควรต้องแนบ) ให้รอสักครู่
+    if (_loadingWarrantyInfo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กำลังตรวจสอบข้อมูลประกัน กรุณารอสักครู่')),
+      );
+      return;
+    }
     final formOk = _formKey.currentState!.validate();
-    // ✅ สลิปถือว่าครบได้ 2 ทาง: ช่างอัปโหลดเอง (_slipPhoto) หรือลูกค้าอัปโหลดมาจาก
-    // หน้าชำระเงินในแอปแล้ว (_customerSlipUrl) — ไม่บังคับให้ช่างอัปโหลดซ้ำอีกรอบ
-    final hasSlip = _slipPhoto != null || _customerSlipUrl != null;
+    // ✅ สลิปถือว่าครบได้ 3 ทาง: เครื่องจักรอยู่ในประกัน (ไม่ต้องมีสลิปเลย),
+    // ช่างอัปโหลดเอง (_slipPhoto), หรือลูกค้าอัปโหลดมาจากหน้าชำระเงินในแอปแล้ว
+    // (_customerSlipUrl) — ไม่บังคับให้ช่างอัปโหลดซ้ำอีกรอบ
+    final hasSlip =
+        _isWarrantyCovered || _slipPhoto != null || _customerSlipUrl != null;
     final photosOk = _beforePhoto != null && _afterPhoto != null && hasSlip;
 
     if (!photosOk) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('กรุณาอัปโหลดรูปภาพก่อนซ่อม, หลังซ่อม และสลิปโอนเงินให้ครบ')),
+        SnackBar(
+            content: Text(_isWarrantyCovered
+                ? 'กรุณาอัปโหลดรูปภาพก่อนซ่อมและหลังซ่อมให้ครบ'
+                : 'กรุณาอัปโหลดรูปภาพก่อนซ่อม, หลังซ่อม และสลิปโอนเงินให้ครบ')),
       );
       return;
     }
@@ -157,10 +215,11 @@ class _ReportPageState extends State<ReportPage> {
 
       // สลิป: ถ้าช่างเลือกรูปใหม่เอง (เผื่อกรณีลูกค้ายังไม่ได้จ่ายผ่านแอป) ให้อัปโหลด
       // ใหม่ตามปกติ แต่ถ้ามี _customerSlipUrl จากลูกค้าอยู่แล้ว ใช้ URL เดิมได้เลย
-      // ไม่ต้องอัปโหลดซ้ำ (ประหยัดโควต้า Cloudinary + เร็วขึ้น)
+      // ไม่ต้องอัปโหลดซ้ำ (ประหยัดโควต้า Cloudinary + เร็วขึ้น) — ถ้าอยู่ในประกัน
+      // และไม่มีสลิปเลย ส่งค่าว่างไป ไม่มีอะไรให้อัปโหลด
       final slipUrl = _slipPhoto != null
           ? await CloudinaryService.uploadImage(_slipPhoto!)
-          : _customerSlipUrl!;
+          : (_customerSlipUrl ?? '');
 
       await db.DatabaseHelper.instance.submitRepairReport(
         repairId: widget.repairId,
@@ -252,15 +311,60 @@ class _ReportPageState extends State<ReportPage> {
                                 : null,
                           ),
                           const SizedBox(height: 16),
-                          _UploadTile(
-                            label: 'สลิปโอนเงินลูกค้า',
-                            photo: _slipPhoto,
-                            prefilledUrl: _customerSlipUrl,
-                            prefilledCaption:
-                                'ลูกค้าอัปโหลดแล้วจากหน้าชำระเงิน (แตะเพื่อเปลี่ยนรูป)',
-                            onTap: () =>
-                                _pickImage('สลิปโอนเงิน', (v) => _slipPhoto = v),
-                          ),
+                          // 🆕 [ใหม่] ระหว่างเช็คสถานะประกันอยู่ (เรียก API ยังไม่
+                          // เสร็จ) โชว์ตัวโหลดไว้ก่อน กันช่างเห็นช่องแนบสลิปโผล่มา
+                          // แวบเดียวแล้วหายไปถ้าเครื่องจักรอยู่ในประกัน (จอกระพริบ)
+                          if (_loadingWarrantyInfo)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                              ),
+                            )
+                          // ถ้าเครื่องจักรอยู่ในประกัน ไม่ต้องแนบสลิปโอนเงินเลย
+                          // (ไม่มีการชำระเงินจริง) — โชว์กล่องข้อความแทนช่องอัปโหลด
+                          else if (_isWarrantyCovered)
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.greenBg,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.shield_outlined,
+                                      color: AppColors.greenText, size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _machineWarrantyStatusText != null
+                                          ? 'ไม่ต้องแนบสลิปโอนเงิน — เครื่องจักรอยู่ในประกัน ($_machineWarrantyStatusText)'
+                                          : 'ไม่ต้องแนบสลิปโอนเงิน — เครื่องจักรอยู่ในประกัน',
+                                      style: const TextStyle(
+                                        color: AppColors.greenText,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            _UploadTile(
+                              label: 'สลิปโอนเงินลูกค้า',
+                              photo: _slipPhoto,
+                              prefilledUrl: _customerSlipUrl,
+                              prefilledCaption:
+                                  'ลูกค้าอัปโหลดแล้วจากหน้าชำระเงิน (แตะเพื่อเปลี่ยนรูป)',
+                              onTap: () => _pickImage(
+                                  'สลิปโอนเงิน', (v) => _slipPhoto = v),
+                            ),
                           const SizedBox(height: 16),
                           const _FieldLabel('ปัญหาที่พบ'),
                           const SizedBox(height: 6),

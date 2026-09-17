@@ -24,7 +24,7 @@ enum FilterTab {
   scheduledPending('รอดำเนินการ'),
   inProgress('กำลังซ่อม'),
   urgent('เร่งด่วน'),
-  problem('มีปัญหา / ต้องตรวจสอบ'),
+  problem('มีปัญหา'), // 🔴 ปรับชื่อแท็บให้ตรงกับเว็บ ("มีปัญหา")
   overdue('เกินกำหนดเวลา'),
   completed('เสร็จสิ้น'),
   cancelled('ยกเลิก');
@@ -42,10 +42,6 @@ enum FilterTab {
       case FilterTab.scheduledPending:
         return s == 'รอดำเนินการ';
       case FilterTab.inProgress:
-        // 🆕 [ใหม่] รวม 'กำลังเดินทาง' (สถานะใหม่ก่อนหน้า 'กำลังซ่อม' จริง —
-        // ตั้งตอนช่างถึงคิวงานและเปิดดูแผนที่แล้ว ดู markTechnicianTraveling()
-        // ใน services.dart) เข้าแท็บ "กำลังซ่อม" เดิมไปด้วย กันตกหล่นไปโผล่แท็บ
-        // อื่นผิด ๆ เหมือนเคสสถานะใหม่อื่น ๆ ที่เจอมาก่อนหน้านี้ในโปรเจกต์นี้
         return s == 'กำลังซ่อม' ||
             s == 'กำลังดำเนินการ' ||
             s == 'กำลังเดินทาง' ||
@@ -54,7 +50,8 @@ enum FilterTab {
         return (detail ?? '').contains('เร่งด่วน') ||
             (detail ?? '').contains('[ความรุนแรง: เร่งด่วน]');
       case FilterTab.problem:
-        return s == 'มีปัญหา';
+        // 🔴 รองรับทั้ง "มีปัญหา" และข้อความที่มีคำว่าปัญหา
+        return s == 'มีปัญหา' || s.contains('ปัญหา');
       case FilterTab.overdue:
         return s == 'เกินกำหนดเวลา' || s == 'Overdue';
       case FilterTab.completed:
@@ -76,7 +73,16 @@ class StatusStyle {
   const StatusStyle({required this.bg, required this.fg, required this.icon});
 
   static StatusStyle getStyle(String? status) {
-    switch (status?.trim()) {
+    final s = status?.trim() ?? '';
+    if (s == 'มีปัญหา' || s.contains('ปัญหา')) {
+      return const StatusStyle(
+        bg: AppColors.redBg,
+        fg: AppColors.redText,
+        icon: Icons.report_problem_outlined,
+      );
+    }
+
+    switch (s) {
       case 'เสร็จแล้ว':
       case 'เสร็จสิ้น':
       case 'Completed':
@@ -93,9 +99,6 @@ class StatusStyle {
           fg: AppColors.yellowText,
           icon: Icons.sync,
         );
-      // 🆕 [ใหม่] สถานะ "กำลังเดินทาง" (ช่างถึงคิวงานแล้ว กำลังมุ่งหน้าไปหา
-      // ลูกค้า ยังไม่ได้ลงมือซ่อมจริง) — ให้สีฟ้าแยกจาก "กำลังซ่อม" (เหลือง)
-      // เพื่อให้ลูกค้า/แอดมินแยกออกว่าช่างอยู่ขั้นไหนจริง ๆ
       case 'กำลังเดินทาง':
         return const StatusStyle(
           bg: Color(0xFFDCEEFF),
@@ -129,12 +132,6 @@ class StatusStyle {
           fg: AppColors.textSubtitle,
           icon: Icons.cancel_outlined,
         );
-      case 'มีปัญหา':
-        return const StatusStyle(
-          bg: AppColors.redBg,
-          fg: AppColors.redText,
-          icon: Icons.report_problem_outlined,
-        );
       default:
         return const StatusStyle(
           bg: AppColors.yellowBg,
@@ -145,9 +142,6 @@ class StatusStyle {
   }
 }
 
-/// ==========================================
-/// แถบ header Chat
-/// ==========================================
 class ChatHeader extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -208,9 +202,6 @@ class ChatHeader extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 🔴 วงกลมแดงแสดงตัวเลขแจ้งเตือน
-/// ==========================================
 class CountBadge extends StatelessWidget {
   final int count;
   final int max;
@@ -246,9 +237,6 @@ class CountBadge extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 🔝 แถบ Header ส่วนบนของแอป (AppHeader)
-/// ==========================================
 class AppHeader extends StatelessWidget {
   final String title;
   final bool showBack;
@@ -337,9 +325,6 @@ class AppHeader extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 🏷️ ส่วนกรองและหัวข้อประวัติ (HistoryHeaderContent)
-/// ==========================================
 class HistoryHeaderContent extends StatelessWidget {
   final int totalTickets;
   final FilterTab selectedTab;
@@ -459,9 +444,6 @@ class HistoryHeaderContent extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 📊 การ์ดสรุปจำนวนงานทั้งหมด (TodaySummaryCard)
-/// ==========================================
 class TodaySummaryCard extends StatelessWidget {
   final int total;
   final int completed;
@@ -639,9 +621,6 @@ class TodaySummaryCard extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 🛠️ การ์ดงานที่กำลังดำเนินการ (OngoingJobCard)
-/// ==========================================
 class OngoingJobCard extends StatelessWidget {
   final Repair repair;
   final VoidCallback? onTap;
@@ -775,9 +754,6 @@ class OngoingJobCard extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 📜 การ์ดประวัติการแจ้งซ่อมย่อย (HistoryCard)
-/// ==========================================
 class HistoryCard extends StatelessWidget {
   final Repair repair;
   final VoidCallback? onTap;
@@ -871,9 +847,6 @@ class HistoryCard extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 🏷️ Widget ตัวช่วยสร้าง Badge สถานะ (_StatusBadge)
-/// ==========================================
 class _StatusBadge extends StatelessWidget {
   final String status;
 
@@ -909,9 +882,6 @@ class _StatusBadge extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 📱 หน้าสลับชั่วคราว (PlaceholderPage)
-/// ==========================================
 class PlaceholderPage extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -956,9 +926,6 @@ class PlaceholderPage extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// ⚙️ ปุ่มตั้งค่า สำหรับใส่ใน trailing ของ AppHeader หน้าโปรไฟล์
-/// ==========================================
 class ProfileSettingsButton extends StatelessWidget {
   const ProfileSettingsButton({super.key});
 
@@ -987,8 +954,6 @@ class ProfileSettingsButton extends StatelessWidget {
 
     await PushNotificationService.unlinkUser();
     await SessionStorage.clear();
-    // 🔐 ต้อง sign out ออกจาก Firebase Auth ด้วย ไม่งั้น auth.token.role เก่า
-    // จะยังค้างอยู่ในเครื่อง แม้ Session ในแอปจะถูกล้างไปแล้วก็ตาม
     await AuthApiService.logout();
 
     db.Session.signOut();
@@ -1129,7 +1094,6 @@ class ProfileSettingsButton extends StatelessWidget {
         if (value == 'logout') {
           _logout(context);
         } else if (value == 'change_password') {
-          // ลูกค้า: ใช้หน้า "ลืมรหัสผ่าน" (ยืนยันตัวตนผ่าน OTP อีเมล) แทนไดอะล็อกเดิม
           if (db.Session.currentRole == 'CUSTOMER') {
             Navigator.push(
               context,
@@ -1712,9 +1676,6 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-/// ==========================================
-/// 🗑️ Widget สำหรับสไลด์เพื่อลบรายการ (SwipeToRevealDelete)
-/// ==========================================
 class SwipeToRevealDelete extends StatefulWidget {
   final Widget child;
   final VoidCallback onDelete;
