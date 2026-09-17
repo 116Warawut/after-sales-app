@@ -176,6 +176,47 @@ class DatabaseHelper {
     return db.ref();
   }
 
+  // ===========================================================================
+  // 🍎 [แก้บัค iOS] .get() ตอบ "ไม่มีข้อมูล" ทั้งที่ข้อมูลมีอยู่จริงบนเซิร์ฟเวอร์
+  // ---------------------------------------------------------------------------
+  // อาการจาก DebugLog บนเครื่องจริง (iOS เท่านั้น, Android ไม่เจอ):
+  //     _byId(repairs,42): ตาราง "repairs" ว่างเปล่า/อ่านไม่ได้
+  // ทั้งที่ตาราง repairs มีข้อมูลอยู่จริงในฐานข้อมูล และไม่ได้ throw exception
+  // ใด ๆ (ถ้าเป็น permission-denied จริง จะเข้า catch แล้ว log "EXCEPTION"
+  // แทน ไม่ใช่ข้อความ "ว่างเปล่า/อ่านไม่ได้" นี้) — แปลว่า .get() "สำเร็จ" แต่
+  // ตอบว่า exists=false เพราะ plugin firebase_database บน iOS ยังเชื่อมต่อ
+  // (WebSocket) กับเซิร์ฟเวอร์ไม่เสร็จตอนที่เรียก โดยเฉพาะตอนเพิ่งเปิดแอป/สลับ
+  // แท็บทันที ก่อนที่การเชื่อมต่อจริงจะพร้อม ตัว .get() เลยตอบจาก cache ว่างที่
+  // ยังไม่เคย sync แทนที่จะรอเชื่อมต่อเสร็จก่อนค่อยตอบ (Android เจอน้อยกว่ามาก
+  // เพราะปกติมักมี stream/listener อื่นเปิดค้างไว้ก่อนแล้วทำให้เชื่อมต่อพร้อมเร็วกว่า)
+  //
+  // วิธีแก้: ถ้า .get() ครั้งแรกตอบ exists=false ให้เช็ก '.info/connected' ก่อน
+  // ถ้ายังไม่เชื่อมต่อ ให้รอสัญญาณเชื่อมต่อสำเร็จ (timeout กันค้าง) แล้วค่อยอ่านซ้ำ
+  // อีกครั้งก่อนจะสรุปว่า "ไม่มีข้อมูลจริง ๆ"
+  Future<DataSnapshot> _getResilient(DatabaseReference ref) async {
+    var snap = await ref.get();
+    if (snap.exists && snap.value != null) return snap;
+
+    try {
+      final connectedRef = FirebaseDatabase.instance.ref('.info/connected');
+      final connSnap = await connectedRef.get();
+      final alreadyConnected = connSnap.value == true;
+
+      if (!alreadyConnected) {
+        await connectedRef.onValue
+            .firstWhere((event) => event.snapshot.value == true)
+            .timeout(const Duration(seconds: 6));
+      }
+
+      // เชื่อมต่อพร้อมแล้ว (หรือเชื่อมต่ออยู่แล้วตั้งแต่ต้น) ลองอ่านซ้ำอีกครั้ง
+      snap = await ref.get();
+    } catch (_) {
+      // รอเชื่อมต่อไม่ทันภายในเวลาที่กำหนด/เช็คไม่สำเร็จ — ปล่อยผ่านไปใช้ผลลัพธ์
+      // จากการอ่านครั้งแรก (exists=false) เหมือนเดิม อย่างน้อยก็ไม่ค้างแอปทั้งหมด
+    }
+    return snap;
+  }
+
   String _k(dynamic id) {
     if (id == null) return '';
     final s = id.toString().trim();
@@ -309,7 +350,7 @@ class DatabaseHelper {
 
     final table_ = <String, dynamic>{};
     try {
-      final snap = await _root.child(table).get();
+      final snap = await _getResilient(_root.child(table));
       if (!snap.exists || snap.value == null) {
         DebugLog.add('_byId($table,$id): ตาราง "$table" ว่างเปล่า/อ่านไม่ได้');
         return null;
@@ -383,7 +424,7 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> _all(String table) async {
-    final snap = await _root.child(table).get();
+    final snap = await _getResilient(_root.child(table));
     if (!snap.exists || snap.value == null) return [];
     final out = <Map<String, dynamic>>[];
     final raw = snap.value;
@@ -544,7 +585,10 @@ class DatabaseHelper {
 
   Future<void> init() async {
     try {
-      final snap = await _root.child('admins').get();
+      // 🍎 ใช้ _getResilient เช่นกัน กัน iOS อ่านตอนเชื่อมต่อยังไม่พร้อมแล้วเข้าใจ
+      // ผิดว่า "ยังไม่มีแอดมินเลย" ทั้งที่มีอยู่แล้วจริง ๆ แล้วไปสร้างแอดมิน
+      // ค่าเริ่มต้น (username: ad) ซ้ำขึ้นมาอีกชุดโดยไม่จำเป็น
+      final snap = await _getResilient(_root.child('admins'));
       final hasAdmin = snap.exists && snap.value != null;
       if (!hasAdmin) {
         await _seedAdminOnly();
