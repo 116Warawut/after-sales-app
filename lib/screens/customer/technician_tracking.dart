@@ -25,13 +25,17 @@ class Technician {
     this.photoUrl,
   });
 
+  // 🔴 [แก้บัค] เดิมค่า default ของทุกช่องเป็นข้อมูล mockup สมัยเทส UI
+  // ('นายประสิทธิ์ โชคชัยฟาร์ม' / เลขบัตร 1265864102548 / Honda Wave กง 999)
+  // พองานยังไม่มีช่าง หรือ record ช่างไม่มีฟิลด์ tech_name ลูกค้าจะเห็นชื่อช่าง
+  // ปลอมคนนี้บนแผนที่ทันที ทั้งที่ยังไม่มีใครรับงาน — เปลี่ยนเป็น '-' ให้หมด
   factory Technician.fromMap(Map<String, dynamic> map) {
     return Technician(
-      name: (map['tech_name'] as String?) ?? 'นายประสิทธิ์ โชคชัยฟาร์ม',
-      role: (map['role_label'] as String?) ?? 'ช่างเทคนิคประจำสาขา',
-      employeeId: (map['employee_id'] as String?) ?? '1265864102548',
-      vehicle: (map['vehicle'] as String?) ?? 'Honda Wave 110i (กง 999 กทม.)',
-      photoUrl: map['photo_url'] as String?,
+      name: map['tech_name']?.toString() ?? '-',
+      role: map['role_label']?.toString() ?? 'ช่างเทคนิค',
+      employeeId: map['employee_id']?.toString() ?? '-',
+      vehicle: map['vehicle']?.toString() ?? '-',
+      photoUrl: map['photo_url']?.toString(),
     );
   }
 }
@@ -86,8 +90,8 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
         .watchTechnicianLocation(techUsername)
         .listen((row) async {
       if (!mounted) return;
-      final lat = (row?['current_lat'] as num?)?.toDouble();
-      final lng = (row?['current_lng'] as num?)?.toDouble();
+      final lat = toDoubleOrNull(row?['current_lat']);
+      final lng = toDoubleOrNull(row?['current_lng']);
       if (lat == null || lng == null) return;
 
       final newPos = LatLng(lat, lng);
@@ -112,7 +116,7 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
       setState(() {
         _minutesRemaining = routeInfo['time_minutes'] ?? _minutesRemaining;
         _distanceKm =
-            (routeInfo['distance_km'] as num?)?.toDouble() ?? _distanceKm;
+            toDoubleOrNull(routeInfo['distance_km']) ?? _distanceKm;
         if (pts != null && pts.isNotEmpty) {
           _routePoints = pts.map((p) => LatLng(p['lat']!, p['lng']!)).toList();
         }
@@ -192,7 +196,7 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
     }
 
     // เงื่อนไขที่ 1: ต้องถึงวันนัดซ่อมก่อนเท่านั้น ลูกค้าถึงจะติดตามตำแหน่งช่างได้
-    final appointmentDate = repair['date'] as String?;
+    final appointmentDate = repair['date']?.toString();
     if (!_isTodayOrPast(appointmentDate)) {
       setState(() {
         _errorMessage =
@@ -233,22 +237,30 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
     // ---------------------------------------------------------------------
     // 🧪 2. โหลดข้อมูลช่าง (หากไม่พบข้อมูลใน DB จะใช้ข้อมูล Mockup ทันที)
     // ---------------------------------------------------------------------
-    Technician tech = const Technician(
-      name: 'นายประสิทธิ์ โชคชัยฟาร์ม',
-      role: 'ช่างเครื่องปริ้น',
-      employeeId: '1265864102548',
-      vehicle: 'Honda Wave 110i (กง 999 กทม.)',
-    );
-
-    Map<String, dynamic>? techRow;
-    final techUsername = repair['technician_username'] as String?;
-    if (techUsername != null && techUsername.isNotEmpty) {
-      techRow = await db.DatabaseHelper.instance
-          .getTechnicianByUsername(techUsername);
-      if (techRow != null) {
-        tech = Technician.fromMap(techRow);
-      }
+    // 🔴 [แก้บัค] เดิมตั้งค่าเริ่มต้นเป็นช่าง mockup ('นายประสิทธิ์ โชคชัยฟาร์ม')
+    // แล้วค่อยทับด้วยช่างจริงถ้ามี ผลคืองานที่ยังไม่ได้จัดสรรช่าง (หรือหา record
+    // ช่างไม่เจอ) ลูกค้าจะเห็นแผนที่พร้อมชื่อช่างปลอมคนนี้ — ตอนนี้ถ้ายังไม่มีช่าง
+    // ให้แจ้งตามจริงแล้วจบ ไม่ต้องเปิดแผนที่
+    final techUsername = repair['technician_username']?.toString();
+    if (techUsername == null || techUsername.isEmpty) {
+      setState(() {
+        _errorMessage =
+            'งานนี้ยังไม่มีการมอบหมายช่าง\nติดตามตำแหน่งได้หลังแอดมินจัดสรรช่างแล้ว';
+        _loading = false;
+      });
+      return;
     }
+
+    final techRow =
+        await db.DatabaseHelper.instance.getTechnicianByUsername(techUsername);
+    if (techRow == null) {
+      setState(() {
+        _errorMessage = 'ไม่พบข้อมูลช่างที่รับผิดชอบงานนี้ ($techUsername)';
+        _loading = false;
+      });
+      return;
+    }
+    final Technician tech = Technician.fromMap(techRow);
 
     // ---------------------------------------------------------------------
     // 🧪 3. กำหนดพิกัด
@@ -259,16 +271,16 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
     // อัปเดตเป็นพิกัด GPS จริงล่าสุดทุกครั้งที่ช่างเปิดหน้า "ตำแหน่งลูกค้า" ของฝั่งช่างเอง
     // (ดู LocationService + updateTechnicianLocation ใน customer_tracking.dart ฝั่งช่าง)
     // ---------------------------------------------------------------------
-    double? startLat = (techRow?['current_lat'] as num?)?.toDouble();
-    double? startLng = (techRow?['current_lng'] as num?)?.toDouble();
+    double? startLat = toDoubleOrNull(techRow['current_lat']);
+    double? startLng = toDoubleOrNull(techRow['current_lng']);
     // ถ้ายังไม่เคยมีการอัปเดตตำแหน่งช่างเลย (ช่างยังไม่เคยเปิดหน้าติดตามตำแหน่งลูกค้า
     // เพื่อส่ง GPS ขึ้นมา) ค่อย fallback เป็น Mockup เพื่อให้ยังเห็นตัวอย่างแผนที่ได้
     startLat ??= 13.7460; // Mockup: สยาม
     startLng ??= 100.5340;
 
-    double destLat = (repair['dest_lat'] as num?)?.toDouble() ??
+    double destLat = toDoubleOrNull(repair['dest_lat']) ??
         13.7412; // Mockup: เขตสัมพันธวงศ์
-    double destLng = (repair['dest_lng'] as num?)?.toDouble() ?? 100.5042;
+    double destLng = toDoubleOrNull(repair['dest_lng']) ?? 100.5042;
 
     // ---------------------------------------------------------------------
     // 🧪 4. คำนวณเส้นทางจริงบนถนนจาก Geoapify Routing API
@@ -291,7 +303,7 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
     }
 
     double progress =
-        ((repair['progress'] as num?)?.toDouble() ?? 0.4).clamp(0.0, 1.0);
+        (toDoubleOrNull(repair['progress']) ?? 0.0).clamp(0.0, 1.0);
 
     if (!mounted) return;
     setState(() {

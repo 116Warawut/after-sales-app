@@ -91,7 +91,7 @@ class _ChatListPageState extends State<ChatListPage> {
           // เลย — ทั้งที่ต้องการให้ "1 ห้องแชท มีแอดมินรับผิดชอบได้แค่ 1 คน"
           // กรองให้เหลือเฉพาะงานที่ admin_username ตรงกับแอดมินที่ล็อกอินอยู่เท่านั้น
           repairs = (await dbHelper.getAllRepairs())
-              .where((r) => (r['admin_username'] as String?) == username)
+              .where((r) => r['admin_username']?.toString() == username)
               .toList();
           break;
       }
@@ -113,12 +113,14 @@ class _ChatListPageState extends State<ChatListPage> {
         // อยู่จริง (มีช่างรับผิดชอบแล้ว และยังไม่เสร็จ/ไม่ถูกยกเลิก)" แทน — ห้องของงาน
         // ที่เสร็จ/ยกเลิกไปแล้ว พอถูกลบข้อความ (สไลด์ลบ) จะยังหายไปจริงเหมือนเดิม
         // เพราะไม่เข้าเงื่อนไข "ยังทำงานอยู่" อีกต่อไป
-        final status = (repair['status'] as String?) ?? '';
-        final hasTechnician =
-            (repair['technician_username'] as String?)?.isNotEmpty == true;
-        final isActiveJob = hasTechnician &&
-            !status.contains('เสร็จ') &&
-            !status.contains('ยกเลิก');
+        // 🔴 [แก้ไข] เดิมเงื่อนไข isActiveJob บังคับว่าต้อง "มีช่างรับผิดชอบแล้ว"
+        // ห้องแชทถึงจะโผล่ในแท็บแชท — แต่ลูกค้าสามารถกดคุยกับแอดมินได้ตั้งแต่
+        // แจ้งซ่อมเสร็จ (ผ่านปุ่มในหน้ารายละเอียดงาน) ทำให้งานที่ยัง "รอจัดสรรช่าง"
+        // มีห้องแชทใช้งานได้จริงแต่หาไม่เจอในแท็บแชท ต้องเข้าทางหน้ารายละเอียด
+        // อย่างเดียว ตอนนี้ยึดแค่ "งานยังไม่ปิด" เป็นเกณฑ์พอ
+        final status = repair['status']?.toString() ?? '';
+        final isActiveJob =
+            !status.contains('เสร็จ') && !status.contains('ยกเลิก');
         if (last == null && !isActiveJob) continue;
 
         final unread = await dbHelper.getUnreadChatCount(id, username);
@@ -126,26 +128,34 @@ class _ChatListPageState extends State<ChatListPage> {
         String subtitle;
         switch (widget.role) {
           case UserRole.customer:
-            subtitle = (repair['machine'] as String?) ?? '-';
+            subtitle = repair['machine']?.toString() ?? '-';
             break;
           case UserRole.technician:
           case UserRole.admin:
-            final custUsername = repair['customer_username'] as String?;
+            final custUsername = repair['customer_username']?.toString();
             subtitle = (custUsername != null && custUsername.isNotEmpty)
                 ? custUsername
                 : '-';
             break;
         }
 
+        // 🍎 repairId ของ _ChatRoomPreview เป็น int (non-null) แต่ resolveRecordId()
+        // คืนค่า dynamic — ถ้าคีย์ใน Firebase ไม่ใช่รูปแบบตัวเลข (เช่น push id)
+        // การใส่ตรง ๆ จะ throw TypeError กลาง loop แล้วตกไปเข้า catch ทำให้
+        // "ทั้งหน้า" ไม่มีห้องแชทขึ้นเลยสักห้อง — ข้ามเฉพาะใบที่แปลงไม่ได้แทน
+        final intId = toIntOrNull(id);
+        if (intId == null) continue;
+
         rooms.add(_ChatRoomPreview(
-          repairId: id,
-          ticketId: (repair['ticketNo'] as String?) ?? '#AS-$id',
+          repairId: intId,
+          ticketId: repair['ticketNo']?.toString() ?? '#AS-$intId',
           subtitle: subtitle,
-          status: (repair['status'] as String?) ?? '-',
-          lastMessage: last?['message'] as String?,
-          lastMessageIsImage: (last?['message_type'] as String?) == 'image',
-          lastMessageDeleted: last?['is_deleted'] == 1,
-          lastMessageAt: last?['created_at'] as String?,
+          status: status.isEmpty ? '-' : status,
+          lastMessage: last?['message']?.toString(),
+          lastMessageIsImage: last?['message_type']?.toString() == 'image',
+          lastMessageDeleted:
+              last?['is_deleted'] == 1 || last?['is_deleted'] == true,
+          lastMessageAt: last?['created_at']?.toString(),
           unreadCount: unread,
         ));
       }
