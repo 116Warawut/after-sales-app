@@ -58,8 +58,8 @@ class _ReportPageState extends State<ReportPage> {
     try {
       final repair =
           await db.DatabaseHelper.instance.getRepairById(widget.repairId);
-      final ticketNo = repair?['ticketNo'] as String?;
-      final customerSlip = repair?['customer_payment_slip'] as String?;
+      final ticketNo = repair?['ticketNo']?.toString();
+      final customerSlip = repair?['customer_payment_slip']?.toString();
       if (!mounted) return;
       setState(() {
         if (ticketNo != null && ticketNo.isNotEmpty) {

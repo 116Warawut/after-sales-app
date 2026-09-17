@@ -149,16 +149,16 @@ class Machine {
       id: map['id'] is int
           ? map['id'] as int
           : int.tryParse(map['id']?.toString() ?? ''),
-      label: (map['label'] as String?)?.trim().isNotEmpty == true
-          ? (map['label'] as String).trim()
+      label: (map['label']?.toString())?.trim().isNotEmpty == true
+          ? (map['label'].toString()).trim()
           : '-',
-      serialNumber: (map['serial_number'] as String?)?.trim().isNotEmpty == true
-          ? (map['serial_number'] as String).trim()
+      serialNumber: (map['serial_number']?.toString())?.trim().isNotEmpty == true
+          ? (map['serial_number'].toString()).trim()
           : '-',
-      modelName: (map['model_name'] as String?)?.trim().isNotEmpty == true
-          ? (map['model_name'] as String).trim()
+      modelName: (map['model_name']?.toString())?.trim().isNotEmpty == true
+          ? (map['model_name'].toString()).trim()
           : '-',
-      photoUrl: (map['photo_url'] as String?)?.trim() ?? '',
+      photoUrl: (map['photo_url']?.toString())?.trim() ?? '',
       warrantyStartDate: parsedStart,
       warrantyMonths: parsedMonths,
       address: Address.fromMap(map),
@@ -262,12 +262,12 @@ class Address {
 
   factory Address.fromMap(Map<String, dynamic> map) {
     return Address(
-      houseNo: (map['house_no'] as String?)?.trim() ?? '-',
-      moo: (map['moo'] as String?)?.trim() ?? '-',
-      tambon: (map['tambon'] as String?)?.trim() ?? '-',
-      amphoe: (map['amphoe'] as String?)?.trim() ?? '-',
-      changwat: (map['changwat'] as String?)?.trim() ?? '-',
-      zipCode: (map['zip_code'] as String?)?.trim() ?? '-',
+      houseNo: (map['house_no']?.toString())?.trim() ?? '-',
+      moo: (map['moo']?.toString())?.trim() ?? '-',
+      tambon: (map['tambon']?.toString())?.trim() ?? '-',
+      amphoe: (map['amphoe']?.toString())?.trim() ?? '-',
+      changwat: (map['changwat']?.toString())?.trim() ?? '-',
+      zipCode: (map['zip_code']?.toString())?.trim() ?? '-',
     );
   }
 

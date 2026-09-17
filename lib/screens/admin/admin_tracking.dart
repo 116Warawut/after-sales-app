@@ -18,6 +18,7 @@ import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/geoapify_service.dart';
 import 'package:after_sales/screens/shared/route_map_view.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 
 class AdminTrackingPage extends StatefulWidget {
@@ -87,39 +88,16 @@ class _AdminTrackingPageState extends State<AdminTrackingPage> {
     }
   }
 
-  /// 🗓️ เช็คว่าถึงวันนัดซ่อมแล้วหรือยัง (วันนี้ หรือเลยมาแล้ว)
-  /// เหมือนกับ _isTodayOrPast ใน customer_tracking.dart / technician_tracking.dart
-  /// เป๊ะทุกประการ (แกะรูปแบบวันที่ตัวเลขคั่น "/" เช่น "1/9/2569")
-  bool _isTodayOrPast(String? dateStr) {
-    if (dateStr == null || dateStr.trim().isEmpty) return false;
-    try {
-      final parts = dateStr.trim().split('/');
-      if (parts.length != 3) return false;
-
-      final day = int.parse(parts[0]);
-      final month = int.parse(parts[1]);
-      final buddhistYear = int.parse(parts[2]);
-      final year = buddhistYear - 543;
-
-      final appointmentDate = DateTime(year, month, day);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      return !appointmentDate.isAfter(today);
-    } catch (_) {
-      return true;
-    }
-  }
-
   Future<void> _loadFromRepair(Map<String, dynamic> repair) async {
     _ticketId = repair['ticketNo']?.toString() ??
         repair['ticket_no']?.toString() ??
         '#AS-${repair['id']}';
 
     // เงื่อนไขที่ 1: ต้องถึงวันนัดซ่อมก่อนเท่านั้น แอดมินถึงจะเห็นตำแหน่งช่าง
-    // (เงื่อนไขเดียวกับฝั่งช่าง/ลูกค้า)
-    final appointmentDate = repair['date'] as String?;
-    if (!_isTodayOrPast(appointmentDate)) {
+    // (เงื่อนไขเดียวกับฝั่งช่าง/ลูกค้า — ใช้ db.isAppointmentTodayOrPast() ตัวกลาง
+    // ร่วมกับ customer_tracking.dart / technician_tracking.dart)
+    final appointmentDate = repair['date']?.toString();
+    if (!db.isAppointmentTodayOrPast(appointmentDate)) {
       if (!mounted) return;
       setState(() {
         _errorMessage =
@@ -132,8 +110,8 @@ class _AdminTrackingPageState extends State<AdminTrackingPage> {
     // เงื่อนไขที่ 2: ต้องถึงคิวงานนี้แล้วเท่านั้น (ใช้ระบบคิวจริงตาม approved_at
     // เหมือนฝั่งช่าง/ลูกค้า — ถ้าช่างมีงานนัดวันเดียวกันหลายงาน แอดมินจะเห็น
     // ตำแหน่งช่างสำหรับงานนี้ได้เฉพาะตอนที่งานนี้เป็นคิวที่ 1 หรือเริ่มลงมือแล้ว)
-    final status = repair['status'] as String?;
-    final repairIdForQueue = (repair['id'] as num?)?.toInt();
+    final status = repair['status']?.toString();
+    final repairIdForQueue = toIntOrNull(repair['id']);
     if (repairIdForQueue != null) {
       final queueInfo =
           await db.DatabaseHelper.instance.getQueueInfo(repairIdForQueue);
@@ -152,23 +130,23 @@ class _AdminTrackingPageState extends State<AdminTrackingPage> {
     }
 
     // 2. ข้อมูลลูกค้า + พิกัดปลายทาง
-    final customerUsername = repair['customer_username'] as String?;
+    final customerUsername = repair['customer_username']?.toString();
     if (customerUsername != null && customerUsername.isNotEmpty) {
       final customerRow =
           await db.DatabaseHelper.instance.getCustomerProfile(customerUsername);
       if (customerRow != null) {
-        final name = (customerRow['name'] as String?) ?? '';
-        final surname = (customerRow['surname'] as String?) ?? '';
+        final name = (customerRow['name']?.toString()) ?? '';
+        final surname = (customerRow['surname']?.toString()) ?? '';
         final fullName = '$name $surname'.trim();
         _customerName = fullName.isNotEmpty ? fullName : '-';
       }
     }
-    _customerAddress = (repair['location'] as String?) ??
-        (repair['address'] as String?) ??
+    _customerAddress = (repair['location']?.toString()) ??
+        (repair['address']?.toString()) ??
         '-';
 
-    double? destLat = (repair['dest_lat'] as num?)?.toDouble();
-    double? destLng = (repair['dest_lng'] as num?)?.toDouble();
+    double? destLat = toDoubleOrNull(repair['dest_lat']);
+    double? destLng = toDoubleOrNull(repair['dest_lng']);
 
     // ถ้าไม่มีพิกัดปักหมุดไว้ ลอง Geocode จากข้อความที่อยู่แทน
     if ((destLat == null || destLng == null) &&
@@ -183,7 +161,7 @@ class _AdminTrackingPageState extends State<AdminTrackingPage> {
 
     // 3. ข้อมูลช่างที่รับผิดชอบงานนี้ + ตำแหน่งล่าสุดที่ช่างอัปเดตไว้เอง
     // (แอดมินไม่ได้ขอ GPS จากเครื่องตัวเอง แค่อ่านค่าล่าสุดจาก DB)
-    final techUsername = repair['technician_username'] as String?;
+    final techUsername = repair['technician_username']?.toString();
     double? startLat;
     double? startLng;
 
@@ -192,12 +170,12 @@ class _AdminTrackingPageState extends State<AdminTrackingPage> {
           .getTechnicianByUsername(techUsername);
       if (techRow != null) {
         _technicianName =
-            (techRow['tech_name'] as String?)?.trim().isNotEmpty == true
-                ? (techRow['tech_name'] as String).trim()
+            (techRow['tech_name']?.toString())?.trim().isNotEmpty == true
+                ? (techRow['tech_name'].toString()).trim()
                 : '-';
-        _technicianPhone = (techRow['phone'] as String?) ?? '-';
-        startLat = (techRow['current_lat'] as num?)?.toDouble();
-        startLng = (techRow['current_lng'] as num?)?.toDouble();
+        _technicianPhone = (techRow['phone']?.toString()) ?? '-';
+        startLat = toDoubleOrNull(techRow['current_lat']);
+        startLng = toDoubleOrNull(techRow['current_lng']);
         _technicianLocationMissing = startLat == null || startLng == null;
       }
     }

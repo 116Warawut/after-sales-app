@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 
 typedef StreamStateCallback = void Function(MediaStream stream);
 typedef CallStatusCallback = void Function(String status);
@@ -159,7 +160,7 @@ class WebRtcService {
         final candidate = RTCIceCandidate(
           data['candidate']?.toString(),
           data['sdpMid']?.toString(),
-          (data['sdpMLineIndex'] as num?)?.toInt(),
+          toIntOrNull(data['sdpMLineIndex']),
         );
         _addCandidateSafely(candidate);
       }
@@ -255,7 +256,7 @@ class WebRtcService {
         final candidate = RTCIceCandidate(
           data['candidate']?.toString(),
           data['sdpMid']?.toString(),
-          (data['sdpMLineIndex'] as num?)?.toInt(),
+          toIntOrNull(data['sdpMLineIndex']),
         );
         _addCandidateSafely(candidate);
       }
@@ -369,7 +370,9 @@ class WebRtcService {
         .listen((event) {
       final map = event.snapshot.value;
       if (map is Map) {
-        final data = Map<String, dynamic>.from(map);
+        // 🍎 [แก้บัค iOS] ใช้ normalizeRow() แทน Map<String,dynamic>.from() ตรง ๆ
+        // ให้สอดคล้องกับจุดอื่นในไฟล์นี้ (ดูคำอธิบายเต็มใน services.dart _byId)
+        final data = db.DatabaseHelper.normalizeRow(map);
         if (data['status'] == 'calling') {
           onIncomingCall(data);
         }

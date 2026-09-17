@@ -30,12 +30,12 @@ class PartItem {
     final stock = toIntOr(map['stock'], 0);
     return PartItem(
       id: toIntOr(map['id'], 0),
-      partName: (map['part_name'] as String?) ?? '-',
-      partCode: (map['part_code'] as String?) ?? '-',
+      partName: (map['part_name']?.toString()) ?? '-',
+      partCode: (map['part_code']?.toString()) ?? '-',
       stock: stock,
       isAvailable: stock > 0,
       // ⭐ ใช้ key เดียวกับที่แอดมินบันทึกไว้ ('photo_url')
-      photoUrl: (map['photo_url'] as String?) ?? '',
+      photoUrl: (map['photo_url']?.toString()) ?? '',
     );
   }
 }
@@ -577,7 +577,7 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
           .join(', ');
       final admins = await db.DatabaseHelper.instance.getAllAdmins();
       for (final admin in admins) {
-        final adminUsername = admin['username'] as String?;
+        final adminUsername = admin['username']?.toString();
         if (adminUsername == null || adminUsername.isEmpty) continue;
         await db.DatabaseHelper.instance.createNotification({
           'user_username': adminUsername,

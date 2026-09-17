@@ -246,8 +246,8 @@ class _RepairListAdminPageState extends State<RepairListAdminPage> {
                 itemCount: admins.length,
                 itemBuilder: (context, index) {
                   final admin = admins[index];
-                  final username = (admin['username'] as String?) ?? '';
-                  final name = (admin['admin_name'] as String?) ?? username;
+                  final username = (admin['username']?.toString()) ?? '';
+                  final name = (admin['admin_name']?.toString()) ?? username;
                   final isCurrent = username == item.adminUsername;
                   return ListTile(
                     leading: const Icon(Icons.admin_panel_settings_outlined,
@@ -647,7 +647,7 @@ class RepairListItem {
   });
 
   factory RepairListItem.fromMap(Map<String, dynamic> map) {
-    final detail = (map['detail'] as String?) ?? '';
+    final detail = (map['detail']?.toString()) ?? '';
     final isSevere = detail.contains('[ความรุนแรง: เร่งด่วน]');
     final isAdminUrgent = map['is_urgent'] == true || map['is_urgent'] == 1;
     final status = RepairStatusX.fromString(map['status']?.toString());
@@ -668,7 +668,7 @@ class RepairListItem {
       // (ข้อมูลว่างเปล่า/ไม่ตรงกับที่เห็นในรายการ) — ใช้ resolveRecordId() ที่ยึด
       // คีย์จริงเป็นหลักแทน ให้ตรงกับ record ที่แสดงในรายการเป๊ะ ๆ
       id: resolveRecordId(map) ?? 0,
-      fbKey: (map['_fbKey'] as String?),
+      fbKey: (map['_fbKey']?.toString()),
       ticketId: map['ticketNo'] ?? map['ticket_no'] ?? '# AS-0000',
       customerName:
           map['customer_username'] ?? map['customer_name'] ?? 'ไม่ระบุชื่อ',
@@ -677,7 +677,7 @@ class RepairListItem {
       adminUsername: map['admin_username'],
       status: status,
       date: (map['date'] ?? map['created_at'] ?? '-').toString(),
-      location: (map['location'] as String?) ?? '-',
+      location: (map['location']?.toString()) ?? '-',
       isUrgent: isSevere || isAdminUrgent,
       isOverdue: isOverdue,
     );

@@ -417,7 +417,7 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
       // 🔔 แจ้งเตือนแอดมินทุกคนว่ามีงานแจ้งซ่อมใหม่เข้ามา
       final admins = await DatabaseHelper.instance.getAllAdmins();
       for (final admin in admins) {
-        final adminUsername = admin['username'] as String?;
+        final adminUsername = admin['username']?.toString();
         if (adminUsername == null) continue;
         await DatabaseHelper.instance.createNotification({
           'user_username': adminUsername,

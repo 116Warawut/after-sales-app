@@ -28,11 +28,11 @@ class Invoice {
       // ใช้ resolveRecordId() ที่ยึดคีย์จริงเป็นหลักแทน (ดูเหตุผลใน
       // utils/firebase_number.dart)
       repairId: resolveRecordId(map) ?? 0,
-      id: (map['bill_id'] as String?) ?? '-',
-      date: (map['invoice_date'] as String?) ??
-          (map['date'] as String?) ??
+      id: (map['bill_id']?.toString()) ?? '-',
+      date: (map['invoice_date']?.toString()) ??
+          (map['date']?.toString()) ??
           '-',
-      amount: ((map['total_price'] as num?) ?? 0).toDouble(),
+      amount: toDoubleOrNull(map['total_price']) ?? 0,
     );
   }
 }

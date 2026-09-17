@@ -473,7 +473,7 @@ class _RepairHistoryTile extends StatelessWidget {
   const _RepairHistoryTile({required this.row, required this.onTap});
 
   _StatusStyle get _status {
-    final raw = ((row['status'] as String?) ?? '').trim();
+    final raw = ((row['status']?.toString()) ?? '').trim();
     if (raw.contains('เสร็จ')) {
       return const _StatusStyle('เสร็จสิ้น', AppColors.greenText);
     }
@@ -486,8 +486,8 @@ class _RepairHistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = _status;
-    final ticketNo = (row['ticketNo'] as String?) ?? '-';
-    final date = (row['date'] as String?) ?? '-';
+    final ticketNo = (row['ticketNo']?.toString()) ?? '-';
+    final date = (row['date']?.toString()) ?? '-';
 
     return InkWell(
       onTap: onTap,

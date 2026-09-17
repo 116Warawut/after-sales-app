@@ -597,15 +597,15 @@ class _ChatGroup {
     final sorted = [...items]
       ..sort((a, b) => (toInt(b['id']) ?? 0).compareTo(toInt(a['id']) ?? 0));
     final latest = sorted.first;
-    final title = (latest['title'] as String?) ?? 'ข้อความใหม่';
+    final title = (latest['title']?.toString()) ?? 'ข้อความใหม่';
     final chatTitle = title.replaceFirst('ข้อความใหม่: ', '');
     final unreadCount = items.where((n) => (toInt(n['is_read']) ?? 0) == 0).length;
     return _ChatGroup(
       jobId: jobId,
       items: items,
       chatTitle: chatTitle,
-      latestMessage: (latest['message'] as String?) ?? '-',
-      latestCreatedAt: latest['created_at'] as String?,
+      latestMessage: (latest['message']?.toString()) ?? '-',
+      latestCreatedAt: latest['created_at']?.toString(),
       unreadCount: unreadCount,
       sortKey: toInt(latest['id']) ?? 0,
     );

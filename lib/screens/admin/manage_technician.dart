@@ -51,21 +51,21 @@ class TechnicianItem {
 
   factory TechnicianItem.fromMap(Map<String, dynamic> map) {
     return TechnicianItem(
-      username: (map['username'] as String?) ?? '',
-      techName: (map['tech_name'] as String?) ?? '-',
-      employeeId: (map['employee_id'] as String?) ?? '-',
-      roleLabel: (map['role_label'] as String?) ?? 'ช่างเทคนิค',
-      vehicle: (map['vehicle'] as String?) ?? '-',
-      phone: (map['phone'] as String?) ?? '-',
-      houseNo: (map['house_no'] as String?) ?? '',
-      moo: (map['moo'] as String?) ?? '',
-      tambon: (map['tambon'] as String?) ?? '',
-      amphoe: (map['amphoe'] as String?) ?? '',
-      changwat: (map['changwat'] as String?) ?? '',
-      postalCode: (map['postal_code'] as String?) ?? '',
-      address: (map['address'] as String?) ?? '',
+      username: (map['username']?.toString()) ?? '',
+      techName: (map['tech_name']?.toString()) ?? '-',
+      employeeId: (map['employee_id']?.toString()) ?? '-',
+      roleLabel: (map['role_label']?.toString()) ?? 'ช่างเทคนิค',
+      vehicle: (map['vehicle']?.toString()) ?? '-',
+      phone: (map['phone']?.toString()) ?? '-',
+      houseNo: (map['house_no']?.toString()) ?? '',
+      moo: (map['moo']?.toString()) ?? '',
+      tambon: (map['tambon']?.toString()) ?? '',
+      amphoe: (map['amphoe']?.toString()) ?? '',
+      changwat: (map['changwat']?.toString()) ?? '',
+      postalCode: (map['postal_code']?.toString()) ?? '',
+      address: (map['address']?.toString()) ?? '',
       // 🔴 [แก้บั๊ก] อ่าน photo_url จากข้อมูลดิบมาเก็บด้วย (ดูเหตุผลด้านบน)
-      photoUrl: (map['photo_url'] as String?) ?? '',
+      photoUrl: (map['photo_url']?.toString()) ?? '',
     );
   }
 }

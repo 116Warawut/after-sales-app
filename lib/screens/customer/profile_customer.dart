@@ -64,23 +64,23 @@ class UserProfile {
     Map<String, dynamic> map, {
     int machineCount = 0,
   }) {
-    final name = (map['name'] as String?) ?? '';
-    final surname = (map['surname'] as String?) ?? '';
+    final name = (map['name']?.toString()) ?? '';
+    final surname = (map['surname']?.toString()) ?? '';
     return UserProfile(
-      username: (map['username'] as String?) ?? '',
+      username: (map['username']?.toString()) ?? '',
       fullName: '$name $surname'.trim(),
-      company: (map['company'] as String?) ?? '-',
-      email: (map['email'] as String?) ?? '-',
-      address: (map['address'] as String?) ?? '-',
-      houseNo: (map['house_no'] as String?) ?? '',
-      moo: (map['moo'] as String?) ?? '',
-      tambon: (map['tambon'] as String?) ?? '',
-      amphoe: (map['amphoe'] as String?) ?? '',
-      changwat: (map['changwat'] as String?) ?? '',
-      postalCode: (map['postal_code'] as String?) ?? '',
-      phone: (map['phone'] as String?) ?? '-',
+      company: (map['company']?.toString()) ?? '-',
+      email: (map['email']?.toString()) ?? '-',
+      address: (map['address']?.toString()) ?? '-',
+      houseNo: (map['house_no']?.toString()) ?? '',
+      moo: (map['moo']?.toString()) ?? '',
+      tambon: (map['tambon']?.toString()) ?? '',
+      amphoe: (map['amphoe']?.toString()) ?? '',
+      changwat: (map['changwat']?.toString()) ?? '',
+      postalCode: (map['postal_code']?.toString()) ?? '',
+      phone: (map['phone']?.toString()) ?? '-',
       machineCount: machineCount,
-      photoUrl: (map['photo_url'] as String?) ?? '',
+      photoUrl: (map['photo_url']?.toString()) ?? '',
     );
   }
 

@@ -151,7 +151,7 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
     try {
       final repair = await db.DatabaseHelper.instance.getRepairById(repairId);
       final estimatedPrice =
-          (repair?['estimated_price'] as num?)?.toDouble() ?? 0;
+          toDoubleOrNull(repair?['estimated_price']) ?? 0;
       if (estimatedPrice <= 0 || !mounted) return;
       // กันไม่ให้เพิ่มซ้ำเผื่อมีรายการนี้อยู่แล้ว (เช่นส่งมาจาก initialItems)
       final alreadyHasEstimate =
@@ -183,10 +183,10 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
 
       final prices = <int, double>{};
       for (final r in requests) {
-        final partId = (r['part_id'] as num?)?.toInt();
+        final partId = toIntOrNull(r['part_id']);
         if (partId == null || prices.containsKey(partId)) continue;
         final part = await db.DatabaseHelper.instance.getSparePartById(partId);
-        prices[partId] = (part?['price'] as num?)?.toDouble() ?? 0;
+        prices[partId] = toDoubleOrNull(part?['price']) ?? 0;
       }
 
       if (!mounted) return;
@@ -208,15 +208,15 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
   /// กันไม่ให้ถูกดึงมาเสนอซ้ำในบิลใบอื่นทีหลัง
   Future<void> _addPartRequestToInvoice(Map<String, dynamic> request) async {
     final requestId = toIntOr(request['id'], 0);
-    final partId = (request['part_id'] as num?)?.toInt();
-    final quantity = (request['quantity'] as num?)?.toInt() ?? 1;
+    final partId = toIntOrNull(request['part_id']);
+    final quantity = toIntOrNull(request['quantity']) ?? 1;
     final unitPrice =
         partId != null ? (_partRequestUnitPrice[partId] ?? 0) : 0.0;
 
     setState(() {
       _items.add(InvoiceItem(
         id: 'part_req_$requestId',
-        name: (request['part_name'] as String?) ?? 'อะไหล่',
+        name: (request['part_name']?.toString()) ?? 'อะไหล่',
         quantity: quantity,
         unitPrice: unitPrice,
       ));
@@ -521,8 +521,8 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
 
       // 4. แจ้งเตือนลูกค้าว่ามีใบแจ้งหนี้ใหม่
       final repair = await db.DatabaseHelper.instance.getRepairById(repairId);
-      final customerUsername = repair?['customer_username'] as String?;
-      final ticketNo = repair?['ticketNo'] as String? ?? '';
+      final customerUsername = repair?['customer_username']?.toString();
+      final ticketNo = repair?['ticketNo']?.toString() ?? '';
       if (customerUsername != null && customerUsername.isNotEmpty) {
         await db.DatabaseHelper.instance.createNotification({
           'user_username': customerUsername,
@@ -937,8 +937,7 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
               child: _SuggestedPartTile(
                 request: _availablePartRequests[i],
                 unitPrice: _partRequestUnitPrice[
-                        (_availablePartRequests[i]['part_id'] as num?)
-                            ?.toInt()] ??
+                        toIntOrNull(_availablePartRequests[i]['part_id'])] ??
                     0,
                 money: _money,
                 onAdd: () =>
@@ -1393,7 +1392,7 @@ class _SuggestedPartTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final quantity = (request['quantity'] as num?)?.toInt() ?? 1;
+    final quantity = toIntOrNull(request['quantity']) ?? 1;
     final total = unitPrice * quantity;
 
     return Container(
@@ -1409,7 +1408,7 @@ class _SuggestedPartTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  (request['part_name'] as String?) ?? 'อะไหล่',
+                  (request['part_name']?.toString()) ?? 'อะไหล่',
                   style: const TextStyle(
                     fontFamily: AppStyles.fontFamily,
                     fontSize: 14,

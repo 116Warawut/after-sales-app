@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:after_sales/push_notification_service.dart';
 import 'package:after_sales/utils/serial_number.dart';
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/debug_log.dart'; // 🔴 [ชั่วคราว-Debug]
 // ignore: depend_on_referenced_packages
 import 'package:bcrypt/bcrypt.dart' as bcrypt;
@@ -48,6 +49,38 @@ DateComparison compareAppointmentDate(String? dateStr) {
     }
   } catch (_) {}
   return DateComparison.today;
+}
+
+/// 🗓️ เช็คว่าถึงวันนัดซ่อมแล้วหรือยัง (วันนี้ หรือเลยมาแล้ว)
+///
+/// 🧹 [แก้บัค] เดิมฟังก์ชันนี้ถูกก็อปวางซ้ำกันทุกตัวอักษร 3 ไฟล์
+/// (technician_tracking.dart, admin_tracking.dart, customer_tracking.dart
+/// ฝั่งช่าง) ทำให้เสี่ยงหลุดไม่ตรงกันได้ถ้าใครแก้จุดเดียวแล้วลืมอีก 2 จุด
+/// (เคยเกิดขึ้นมาแล้วครั้งหนึ่งกับรูปแบบวันที่) ย้ายมารวมไว้ที่เดียวแทน
+///
+/// หมายเหตุ: ตั้งใจให้พฤติกรรมเหมือนของเดิมทุกประการ ไม่ใช่ compareAppointmentDate
+/// เพราะกรณี dateStr ว่าง/null ของเดิมคืน false (ยังไม่ถึงวันนัด ปิดกั้นไว้ก่อน
+/// เพื่อความปลอดภัย) ในขณะที่ compareAppointmentDate คืน "today" สำหรับกรณีนี้
+/// (ใช้กับ getEffectiveRepairStatus ที่ต้องการพฤติกรรมคนละแบบ) จึงแยกฟังก์ชันไว้
+bool isAppointmentTodayOrPast(String? dateStr) {
+  if (dateStr == null || dateStr.trim().isEmpty) return false;
+  try {
+    final parts = dateStr.trim().split('/');
+    if (parts.length != 3) return false;
+
+    final day = int.parse(parts[0]);
+    final month = int.parse(parts[1]);
+    final buddhistYear = int.parse(parts[2]);
+    final year = buddhistYear - 543;
+
+    final appointmentDate = DateTime(year, month, day);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    return !appointmentDate.isAfter(today);
+  } catch (_) {
+    return true;
+  }
 }
 
 /// คำนวณสถานะที่แท้จริงของงานซ่อมตามวันที่นัดหมายอัตโนมัติ
@@ -1019,8 +1052,12 @@ class DatabaseHelper {
       return (position: 1, total: 1);
     }
 
+    // 🐛 [แก้บัค] เดิมใช้ `as String?` ตรง ๆ ถ้า approved_at/created_at ของ record
+    // ไหนถูกเก็บเป็นชนิดอื่น (เช่น timestamp แบบตัวเลข) จะ throw กลางทาง ทำให้
+    // ระบบคิวงานของช่างคนนั้นทั้งวันพังไปด้วย (กระทบหน้าติดตามตำแหน่งช่างของ
+    // ลูกค้าโดยตรง)
     String? approvalKey(Map<String, dynamic> r) =>
-        (r['approved_at'] as String?) ?? (r['created_at'] as String?);
+        r['approved_at']?.toString() ?? r['created_at']?.toString();
 
     final sameDayJobs = await _where('repairs', (r) {
       if (r['technician_username']?.toString() != techUsername) return false;
@@ -1059,7 +1096,7 @@ class DatabaseHelper {
   Future<void> markTechnicianTraveling(dynamic repairId) async {
     final repair = await getRepairById(repairId);
     if (repair == null) return;
-    final rawStatus = (repair['status'] as String?)?.trim() ?? '';
+    final rawStatus = repair['status']?.toString().trim() ?? '';
     if (rawStatus == 'กำลังเดินทาง') return; // ตั้งไว้แล้ว ไม่ต้องเขียนซ้ำ
     const pastStages = {
       'กำลังดำเนินการ',
@@ -1134,7 +1171,7 @@ class DatabaseHelper {
     double totalRevenue = 0.0;
     for (var r in all) {
       if (r['is_paid'] == 1 || r['is_paid'] == true) {
-        totalRevenue += (r['total_price'] as num? ?? 0).toDouble();
+        totalRevenue += toDoubleOrNull(r['total_price']) ?? 0;
       }
     }
 
@@ -1290,7 +1327,7 @@ class DatabaseHelper {
     if (id == null) throw const FormatException('รหัสงานซ่อมไม่ถูกต้อง');
     final repair = await getRepairById(id);
     if (repair == null) throw StateError('ไม่พบงานซ่อมนี้');
-    final currentStatus = (repair['status'] as String?) ?? 'กำลังซ่อม';
+    final currentStatus = repair['status']?.toString() ?? 'กำลังซ่อม';
     return await _updateById('repairs', id, {
       'status': 'มีปัญหา',
       'status_before_problem': currentStatus,
@@ -1306,7 +1343,7 @@ class DatabaseHelper {
     final repair = await getRepairById(id);
     if (repair == null) throw StateError('ไม่พบงานซ่อมนี้');
     final previousStatus =
-        (repair['status_before_problem'] as String?) ?? 'กำลังซ่อม';
+        repair['status_before_problem']?.toString() ?? 'กำลังซ่อม';
     return await _updateById('repairs', id, {
       'status': previousStatus,
       'status_before_problem': null,
@@ -1543,7 +1580,7 @@ class DatabaseHelper {
     final key = _k(partId);
     final ref = _root.child('spare_parts/$key/stock');
     final result = await ref.runTransaction((Object? current) {
-      final currentStock = (current as num?)?.toInt() ?? 0;
+      final currentStock = toIntOrNull(current) ?? 0;
       if (currentStock < quantityUsed) {
         return Transaction.abort();
       }
@@ -1875,9 +1912,9 @@ class DatabaseHelper {
       id = await _insert('notifications', record);
     }
 
-    final pushUsername = record['user_username'] as String?;
-    final pushTitle = record['title'] as String?;
-    final pushMessage = record['message'] as String?;
+    final pushUsername = record['user_username']?.toString();
+    final pushTitle = record['title']?.toString();
+    final pushMessage = record['message']?.toString();
     if (pushUsername != null && pushTitle != null && pushMessage != null) {
       final Map<String, dynamic> payloadData = pushData ?? {
         'type': type,

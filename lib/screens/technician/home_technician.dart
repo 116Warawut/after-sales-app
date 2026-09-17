@@ -252,11 +252,11 @@ class _NextJobPageState extends State<NextJobPage> {
       // 🆕 ดึงชื่อจริงของช่างมาใช้ทักทาย (เดิมใช้คำว่า "ช่างผู้ดูแล" ลอย ๆ)
       final techProfile = await db.DatabaseHelper.instance
           .getTechnicianByUsername(db.Session.currentUsername);
-      final techName = (techProfile?['tech_name'] as String?)?.trim();
+      final techName = (techProfile?['tech_name']?.toString())?.trim();
 
       Map<String, dynamic>? nextRow;
       for (final r in rows) {
-        final status = (r['status'] as String?) ?? '';
+        final status = (r['status']?.toString()) ?? '';
         if (!status.contains('เสร็จ')) {
           nextRow ??= r;
         }
@@ -265,7 +265,7 @@ class _NextJobPageState extends State<NextJobPage> {
       NextJob? job;
       if (nextRow != null) {
         String company = '-';
-        final customerUsername = nextRow['customer_username'] as String?;
+        final customerUsername = nextRow['customer_username']?.toString();
         if (customerUsername != null && customerUsername.isNotEmpty) {
           final customer = await db.DatabaseHelper.instance
               .getCustomerProfile(customerUsername);
@@ -279,11 +279,11 @@ class _NextJobPageState extends State<NextJobPage> {
         }
         job = NextJob(
           repairId: toIntOr(nextRow['id'], 0),
-          ticketId: (nextRow['ticketNo'] as String?) ?? '-',
+          ticketId: (nextRow['ticketNo']?.toString()) ?? '-',
           company: company,
-          machine: (nextRow['machine'] as String?) ?? '-',
-          date: (nextRow['date'] as String?) ?? '-',
-          address: (nextRow['location'] as String?) ?? '-',
+          machine: (nextRow['machine']?.toString()) ?? '-',
+          date: (nextRow['date']?.toString()) ?? '-',
+          address: (nextRow['location']?.toString()) ?? '-',
         );
       }
 
@@ -292,7 +292,7 @@ class _NextJobPageState extends State<NextJobPage> {
       final now = DateTime.now();
       final todayStr = '${now.day}/${now.month}/${now.year + 543}';
       final todayRows =
-          rows.where((r) => (r['date'] as String?) == todayStr).toList();
+          rows.where((r) => (r['date']?.toString()) == todayStr).toList();
 
       int inProgressToday = 0;
       int doneToday = 0;
@@ -301,7 +301,7 @@ class _NextJobPageState extends State<NextJobPage> {
       final todayTimes = <String>[];
 
       for (final r in todayRows) {
-        final status = (r['status'] as String?) ?? '';
+        final status = (r['status']?.toString()) ?? '';
         if (status.contains('เสร็จ')) {
           doneToday++;
         } else if (status.contains('กำลังดำเนินการ')) {
@@ -312,16 +312,16 @@ class _NextJobPageState extends State<NextJobPage> {
         // (เก็บเป็นข้อความนำหน้าใน 'detail' เช่น "[ความรุนแรง: เร่งด่วน] ...")
         // หรือแอดมินมอบหมายเป็นงานเร่งด่วนเองโดยเฉพาะ ('is_urgent' — ยังไม่มี UI
         // ให้แอดมินตั้งค่านี้ตอนนี้ เตรียมฟิลด์ไว้รอต่อ)
-        final detail = (r['detail'] as String?) ?? '';
+        final detail = (r['detail']?.toString()) ?? '';
         final isSevere = detail.contains('[ความรุนแรง: เร่งด่วน]');
         final isAdminUrgent = r['is_urgent'] == true || r['is_urgent'] == 1;
         if (isSevere || isAdminUrgent) urgentToday++;
 
-        final time = (r['appointment_time'] as String?)?.trim();
+        final time = (r['appointment_time']?.toString())?.trim();
         if (time != null && time.isNotEmpty) todayTimes.add(time);
 
         String companyToday = '-';
-        final custUsername = r['customer_username'] as String?;
+        final custUsername = r['customer_username']?.toString();
         if (custUsername != null && custUsername.isNotEmpty) {
           final customer =
               await db.DatabaseHelper.instance.getCustomerProfile(custUsername);
@@ -337,7 +337,7 @@ class _NextJobPageState extends State<NextJobPage> {
         todayJobs.add(TodayJobItem(
           repairId: toIntOr(r['id'], 0),
           time: (time != null && time.isNotEmpty) ? time : null,
-          machine: (r['machine'] as String?) ?? '-',
+          machine: (r['machine']?.toString()) ?? '-',
           company: companyToday,
         ));
       }

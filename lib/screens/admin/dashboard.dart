@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:after_sales/screens/admin/admin_financial.dart';
@@ -315,7 +316,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       double paid = 0, pending = 0;
       for (final r in repairs) {
         if (isSameMonth(parse(r['created_at']), target.year, target.month)) {
-          final price = (r['total_price'] as num? ?? 0).toDouble();
+          final price = toDoubleOrNull(r['total_price']) ?? 0;
           r['is_paid'] == 1 ? paid += price : pending += price;
         }
       }
@@ -326,7 +327,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     // สำหรับการ์ดโดนัทในแดชบอร์ด — แทนที่การ์ด "จำนวนผู้ใช้งาน" เดิม
     final severityCounts = <String, int>{for (final l in _severityLevels) l: 0};
     for (final r in repairs) {
-      final level = _extractSeverity(r['detail'] as String?);
+      final level = _extractSeverity(r['detail']?.toString());
       severityCounts[level] = (severityCounts[level] ?? 0) + 1;
     }
 
@@ -342,7 +343,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       totalPaid: monthly.fold(0.0, (sum, m) => sum + m.paid),
       totalPending: monthly.fold(0.0, (sum, m) => sum + m.pending),
       lowStockCount: spareParts
-          .where((p) => ((p['stock'] as num? ?? 0) <= 5))
+          .where((p) => (toIntOrNull(p['stock']) ?? 0) <= 5)
           .length, // อะไหล่ต่ำกว่าหรือเท่ากับ 5 ชิ้น
       severityCounts: severityCounts,
       ratingStats: await _loadRatingStats(dbHelper, technicians),
@@ -359,14 +360,14 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     final stats = await dbHelper.getTechnicianRatingStats();
     final nameOf = <String, String>{
       for (final t in technicians)
-        (t['username'] as String? ?? ''):
-            (t['tech_name'] as String?) ?? (t['username'] as String? ?? '-'),
+        (t['username']?.toString() ?? ''):
+            (t['tech_name']?.toString()) ?? (t['username']?.toString() ?? '-'),
     };
 
     final byTechnician = (stats['by_technician'] as List)
         .map((e) => _TechnicianRating(
               name: nameOf[e['technician_username']] ??
-                  e['technician_username'] as String,
+                  e['technician_username'].toString(),
               average: e['average'] as double,
               count: e['count'] as int,
             ))

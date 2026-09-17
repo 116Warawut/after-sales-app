@@ -47,21 +47,21 @@ class TechnicianProfile {
 
   factory TechnicianProfile.fromMap(Map<String, dynamic> map) {
     return TechnicianProfile(
-      username: (map['username'] as String?) ?? '',
-      techName: (map['tech_name'] as String?) ?? '-',
-      employeeId: (map['employee_id'] as String?) ?? '-',
-      roleLabel: (map['role_label'] as String?) ?? '-',
-      vehicle: (map['vehicle'] as String?) ?? '-',
-      company: (map['company'] as String?) ?? '-',
-      address: (map['address'] as String?) ?? '-',
-      houseNo: (map['house_no'] as String?) ?? '',
-      moo: (map['moo'] as String?) ?? '',
-      tambon: (map['tambon'] as String?) ?? '',
-      amphoe: (map['amphoe'] as String?) ?? '',
-      changwat: (map['changwat'] as String?) ?? '',
-      postalCode: (map['postal_code'] as String?) ?? '',
-      phone: (map['phone'] as String?) ?? '-',
-      photoUrl: (map['photo_url'] as String?) ?? '',
+      username: (map['username']?.toString()) ?? '',
+      techName: (map['tech_name']?.toString()) ?? '-',
+      employeeId: (map['employee_id']?.toString()) ?? '-',
+      roleLabel: (map['role_label']?.toString()) ?? '-',
+      vehicle: (map['vehicle']?.toString()) ?? '-',
+      company: (map['company']?.toString()) ?? '-',
+      address: (map['address']?.toString()) ?? '-',
+      houseNo: (map['house_no']?.toString()) ?? '',
+      moo: (map['moo']?.toString()) ?? '',
+      tambon: (map['tambon']?.toString()) ?? '',
+      amphoe: (map['amphoe']?.toString()) ?? '',
+      changwat: (map['changwat']?.toString()) ?? '',
+      postalCode: (map['postal_code']?.toString()) ?? '',
+      phone: (map['phone']?.toString()) ?? '-',
+      photoUrl: (map['photo_url']?.toString()) ?? '',
     );
   }
 

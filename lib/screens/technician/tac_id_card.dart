@@ -20,10 +20,10 @@ class EmployeeIdentity {
 
   factory EmployeeIdentity.fromMap(Map<String, dynamic> map) {
     return EmployeeIdentity(
-      nameTh: (map['tech_name'] as String?) ?? '-',
-      phone: (map['phone'] as String?) ?? '-',
-      employeeId: (map['employee_id'] as String?) ?? '-',
-      photoUrl: map['photo_url'] as String?,
+      nameTh: (map['tech_name']?.toString()) ?? '-',
+      phone: (map['phone']?.toString()) ?? '-',
+      employeeId: (map['employee_id']?.toString()) ?? '-',
+      photoUrl: map['photo_url']?.toString(),
     );
   }
 }

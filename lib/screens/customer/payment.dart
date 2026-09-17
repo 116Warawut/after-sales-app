@@ -1,5 +1,6 @@
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:flutter/material.dart';
 
@@ -46,12 +47,12 @@ class _PaymentPageState extends State<PaymentPage> {
       if (!mounted) return;
       setState(() {
         if (repair != null) {
-          _ticketNo = (repair['ticketNo'] as String?) ?? '-';
-          _billId = (repair['bill_id'] as String?) ?? '-';
-          _totalPrice = (repair['total_price'] as num?)?.toDouble() ?? 0;
-          _paid = ((repair['is_paid'] as num?)?.toInt() ?? 0) == 1 || repair['is_paid'] == true;
-          _adminUsername = (repair['admin_username'] as String?) ?? '';
-          final slip = repair['customer_payment_slip'] as String?;
+          _ticketNo = (repair['ticketNo']?.toString()) ?? '-';
+          _billId = (repair['bill_id']?.toString()) ?? '-';
+          _totalPrice = toDoubleOrNull(repair['total_price']) ?? 0;
+          _paid = (toIntOrNull(repair['is_paid']) ?? 0) == 1 || repair['is_paid'] == true;
+          _adminUsername = (repair['admin_username']?.toString()) ?? '';
+          final slip = repair['customer_payment_slip']?.toString();
           _paymentSlipUrl = (slip != null && slip.trim().isNotEmpty) ? slip : null;
         }
         _loading = false;

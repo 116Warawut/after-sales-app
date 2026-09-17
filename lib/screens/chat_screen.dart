@@ -222,14 +222,14 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
-      final techUsername = repair['technician_username'] as String?;
+      final techUsername = repair['technician_username']?.toString();
       final hasTech = techUsername != null && techUsername.isNotEmpty;
 
       final effStatus = db.getEffectiveRepairStatus(repair);
       final isCompleted = (effStatus == 'เสร็จแล้ว' || effStatus == 'เสร็จสิ้น' || effStatus.contains('ยกเลิก'));
 
-      final adminUsername = repair['admin_username'] as String?;
-      final customerUsername = repair['customer_username'] as String?;
+      final adminUsername = repair['admin_username']?.toString();
+      final customerUsername = repair['customer_username']?.toString();
 
       _ChatContact? adminContact;
       if (adminUsername != null && adminUsername.isNotEmpty) {
@@ -237,11 +237,11 @@ class _ChatScreenState extends State<ChatScreen> {
         adminContact = _ChatContact(
           username: adminUsername,
           role: 'ADMIN',
-          name: (row?['admin_name'] as String?)?.trim().isNotEmpty == true
-              ? (row!['admin_name'] as String).trim()
-              : ((repair['admin_name'] as String?) ?? 'แอดมิน'),
-          phone: (row?['phone'] as String?) ?? '-',
-          photoUrl: row?['photo_url'] as String?,
+          name: (row?['admin_name']?.toString())?.trim().isNotEmpty == true
+              ? row!['admin_name'].toString().trim()
+              : ((repair['admin_name']?.toString()) ?? 'แอดมิน'),
+          phone: (row?['phone']?.toString()) ?? '-',
+          photoUrl: row?['photo_url']?.toString(),
         );
       }
 
@@ -251,30 +251,30 @@ class _ChatScreenState extends State<ChatScreen> {
         technicianContact = _ChatContact(
           username: techUsername,
           role: 'TECHNICIAN',
-          name: (row?['tech_name'] as String?)?.trim().isNotEmpty == true
-              ? (row!['tech_name'] as String).trim()
+          name: (row?['tech_name']?.toString())?.trim().isNotEmpty == true
+              ? row!['tech_name'].toString().trim()
               : 'ช่างเทคนิค',
-          phone: (row?['phone'] as String?) ?? '-',
-          photoUrl: row?['photo_url'] as String?,
+          phone: (row?['phone']?.toString()) ?? '-',
+          photoUrl: row?['photo_url']?.toString(),
         );
       }
 
       _ChatContact? customerContact;
       if (customerUsername != null && customerUsername.isNotEmpty) {
         final row = await db.DatabaseHelper.instance.getCustomerProfile(customerUsername);
-        final name = (row?['name'] as String?) ?? '';
-        final surname = (row?['surname'] as String?) ?? '';
+        final name = (row?['name']?.toString()) ?? '';
+        final surname = (row?['surname']?.toString()) ?? '';
         final fullName = '$name $surname'.trim();
         customerContact = _ChatContact(
           username: customerUsername,
           role: 'CUSTOMER',
           name: fullName.isNotEmpty ? fullName : customerUsername,
-          phone: (row?['phone'] as String?) ?? '-',
-          photoUrl: row?['photo_url'] as String?,
+          phone: (row?['phone']?.toString()) ?? '-',
+          photoUrl: row?['photo_url']?.toString(),
         );
       }
 
-      final ticketNo = (repair['ticketNo'] as String?) ?? '#AS-${repair['id']}';
+      final ticketNo = (repair['ticketNo']?.toString()) ?? '#AS-${repair['id']}';
       final chatTitle = ticketNo;
 
       final rawMsgs = await db.DatabaseHelper.instance.getChatMessages(parsedRepairId);
@@ -447,7 +447,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   title: const Text('ดาวน์โหลดรูปภาพ', style: TextStyle(fontFamily: AppStyles.fontFamily)),
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    _downloadImage(msg['image_path'] as String? ?? '');
+                    _downloadImage(msg['image_path']?.toString() ?? '');
                   },
                 ),
               if (isMe && !isImage)
@@ -495,18 +495,18 @@ class _ChatScreenState extends State<ChatScreen> {
       case 'CUSTOMER':
         return 'ลูกค้า';
       default:
-        return (msg['sender_role'] as String?) ?? '';
+        return (msg['sender_role']?.toString()) ?? '';
     }
   }
 
   String _replyPreviewText(Map<String, dynamic> msg) {
     if (msg['message_type'] == 'image') return '📷 รูปภาพ';
     if (msg['is_deleted'] == 1 || msg['is_deleted'] == true) return 'ข้อความถูกลบแล้ว';
-    return (msg['message'] as String?) ?? '';
+    return (msg['message']?.toString()) ?? '';
   }
 
   Future<void> _copyMessageText(Map<String, dynamic> msg) async {
-    final text = (msg['message'] as String?)?.trim() ?? '';
+    final text = (msg['message']?.toString())?.trim() ?? '';
     if (text.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
@@ -546,7 +546,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final messageId = _parseId(msg['id']);
     if (messageId == null) return;
 
-    final controller = TextEditingController(text: msg['message'] as String?);
+    final controller = TextEditingController(text: msg['message']?.toString());
     final newText = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -622,7 +622,7 @@ class _ChatScreenState extends State<ChatScreen> {
   int _readCountFor(Map<String, dynamic> msg) {
     final msgId = _parseId(msg['id']);
     if (msgId == null) return 0;
-    final senderUsername = msg['sender_username'] as String?;
+    final senderUsername = msg['sender_username']?.toString();
 
     final others = [_adminContact, _technicianContact, _customerContact]
         .whereType<_ChatContact>()
@@ -1056,7 +1056,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final canType = _hasTechnician && !_isJobCompleted;
 
     if (widget.role == UserRole.admin) {
-      final ownerAdminUsername = _repairData!['admin_username'] as String?;
+      final ownerAdminUsername = _repairData!['admin_username']?.toString();
       final isOwner = ownerAdminUsername == null ||
           ownerAdminUsername.isEmpty ||
           ownerAdminUsername == db.Session.currentUsername;
@@ -1212,18 +1212,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
                         final bubble = _ChatBubble(
                           key: msgKey,
-                          message: msg['message'] ?? '',
+                          message: msg['message']?.toString() ?? '',
                           time: _formatTime(msg['created_at']),
                           isMe: isMe,
-                          senderRole: msg['sender_role'] ?? '',
+                          senderRole: msg['sender_role']?.toString() ?? '',
                           isImage: isImage && !isDeleted,
                           isDeleted: isDeleted,
                           isEdited: isEdited,
-                          imagePath: msg['image_path'] as String?,
+                          imagePath: msg['image_path']?.toString(),
                           readCount: isMe ? _readCountFor(msg) : 0,
-                          senderPhotoUrl: isMe ? null : _photoUrlFor(msg['sender_username'] as String?),
+                          senderPhotoUrl: isMe ? null : _photoUrlFor(msg['sender_username']?.toString()),
                           onTapImage: (isImage && !isDeleted)
-                              ? () => _openImageViewer(msg['image_path'] as String? ?? '')
+                              ? () => _openImageViewer(msg['image_path']?.toString() ?? '')
                               : null,
                           replyToMessage: msg['reply_to_message']?.toString(),
                           replyToSenderRole: msg['reply_to_sender_role']?.toString(),
@@ -1242,8 +1242,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
                         final showDateDivider = index == 0 ||
                             !_isSameDay(
-                              _messages[index - 1]['created_at'] as String?,
-                              msg['created_at'] as String?,
+                              _messages[index - 1]['created_at']?.toString(),
+                              msg['created_at']?.toString(),
                             );
                         if (!showDateDivider) return bubble;
 

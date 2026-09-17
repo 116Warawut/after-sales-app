@@ -262,7 +262,7 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
       // 🆕 ดึงชื่อแอดมินที่ล็อกอินอยู่มาใช้ทักทาย
       final adminProfile =
           await dbHelper.getAdminProfile(db.Session.currentUsername);
-      final adminName = (adminProfile?['admin_name'] as String?)?.trim();
+      final adminName = (adminProfile?['admin_name']?.toString())?.trim();
 
       int completed = 0;
       int waiting = 0;
@@ -273,8 +273,8 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
       final todayDateOnly = DateTime(today.year, today.month, today.day);
 
       for (final r in repairs) {
-        final status = RepairStatusX.fromString(r['status'] as String?);
-        final rawStatus = (r['status'] as String?) ?? '';
+        final status = RepairStatusX.fromString(r['status']?.toString());
+        final rawStatus = (r['status']?.toString()) ?? '';
         final isCancelled = rawStatus.contains('ยกเลิก');
 
         if (status == RepairStatus.done) {
@@ -289,13 +289,13 @@ class _AdminHomeContentState extends State<AdminHomeContent> {
         // 🔴 งานเร่งด่วน = ความเสียหายระดับ "เร่งด่วน" ที่ลูกค้าเลือกไว้ตอนแจ้งซ่อม
         // (เก็บนำหน้าใน 'detail') หรือแอดมินตั้งค่าเองเป็นการเฉพาะ ('is_urgent' —
         // ยังไม่มี UI ให้ตั้งค่านี้ตอนนี้ เตรียมฟิลด์ไว้รอต่อเหมือนฝั่งช่าง)
-        final detail = (r['detail'] as String?) ?? '';
+        final detail = (r['detail']?.toString()) ?? '';
         final isSevere = detail.contains('[ความรุนแรง: เร่งด่วน]');
         final isAdminUrgent = r['is_urgent'] == true || r['is_urgent'] == 1;
         if (isSevere || isAdminUrgent) urgent++;
 
         // ⏰ เกินกำหนด = วันนัดผ่านไปแล้ว แต่งานยังไม่เสร็จ/ไม่ถูกยกเลิก
-        final jobDate = _parseThaiDate(r['date'] as String?);
+        final jobDate = _parseThaiDate(r['date']?.toString());
         if (jobDate != null && jobDate.isBefore(todayDateOnly)) {
           overdue++;
         }

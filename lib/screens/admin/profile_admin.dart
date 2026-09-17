@@ -22,10 +22,10 @@ class AdminProfile {
 
   factory AdminProfile.fromMap(Map<String, dynamic> map) {
     return AdminProfile(
-      username: (map['username'] as String?) ?? '',
-      adminName: (map['admin_name'] as String?) ?? '-',
-      adminCode: (map['admin_code'] as String?) ?? '-',
-      photoUrl: (map['photo_url'] as String?) ?? '',
+      username: (map['username']?.toString()) ?? '',
+      adminName: (map['admin_name']?.toString()) ?? '-',
+      adminCode: (map['admin_code']?.toString()) ?? '-',
+      photoUrl: (map['photo_url']?.toString()) ?? '',
     );
   }
 }

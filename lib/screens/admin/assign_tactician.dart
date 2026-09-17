@@ -1,7 +1,6 @@
 // ==========================================
 // SECTION 1: IMPORTS
 // ==========================================
-import 'package:after_sales/app_styles.dart';
 import 'package:flutter/material.dart';
 import 'package:after_sales/models/technician.dart';
 import 'package:after_sales/services.dart';
@@ -74,53 +73,22 @@ class _AssignTacticianScreenState extends State<AssignTacticianScreen> {
           );
         }).toList();
       } else {
-        // ฐานข้อมูลยังไม่มีช่างเลย ใช้ mock data ไว้ก่อนกันหน้าจอว่างเปล่า
-        _technicians = _getMockTechnicians();
+        // 🧹 [ลบ mockup] เดิมถ้าฐานข้อมูลว่างจะโชว์ช่างปลอม 3 คน
+        // (tech_tamdee/tech_somchai/tech_winai) ที่ไม่มี record จริงใน Firebase
+        // ปัญหาคือแอดมินสามารถกดเลือกคนพวกนี้แล้ว "มอบหมายงาน" ให้จริง ๆ ได้
+        // ทำให้ repair ถูกผูกกับ technician_username ที่ไม่มีตัวตน ช่างคนนั้นก็จะ
+        // ไม่เห็นงานในแอปตัวเองเลย (เพราะ query หา username ไม่เจอ) ตอนนี้เปลี่ยน
+        // เป็นปล่อยลิสต์ว่าง ให้ไปเข้า _EmptyTechniciansView ที่มีอยู่แล้วแทน
+        _technicians = [];
       }
     } catch (e) {
       debugPrint('Error loading technicians: $e');
-      _technicians = _getMockTechnicians();
+      _technicians = [];
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  /// 🛠️ ข้อมูลช่างจำลอง (Mock Data) — ใช้เฉพาะตอนดึงข้อมูลจริงไม่สำเร็จ
-  List<Technician> _getMockTechnicians() {
-    return [
-      Technician(
-        id: 1,
-        username: 'tech_tamdee',
-        name: 'นายทำดี จันโอชะ',
-        code: 'รหัส: 3661051541146',
-        role: 'ช่างแอร์',
-        isBusy: 0,
-        initials: Technician.generateInitials('นายทำดี จันโอชะ'),
-        avatarColor: Technician.generateAvatarColor(0),
-      ),
-      Technician(
-        id: 2,
-        username: 'tech_somchai',
-        name: 'สมชาย รักดี',
-        code: 'รหัส: 3661051541147',
-        role: 'ช่างไฟฟ้า',
-        isBusy: 1,
-        initials: Technician.generateInitials('สมชาย รักดี'),
-        avatarColor: AppColors.textHint, // สีเทาสำหรับคนไม่ว่าง
-      ),
-      Technician(
-        id: 3,
-        username: 'tech_winai',
-        name: 'วินัย ใจสู้',
-        code: 'รหัส: 3661051541148',
-        role: 'ช่างแอร์',
-        isBusy: 0,
-        initials: Technician.generateInitials('วินัย ใจสู้'),
-        avatarColor: Technician.generateAvatarColor(2),
-      ),
-    ];
   }
 
   /// 🧹 ล้างคำค้นหา

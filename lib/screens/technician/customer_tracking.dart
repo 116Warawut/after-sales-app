@@ -39,15 +39,15 @@ class CustomerInfo {
     required String address,
     required String machine,
   }) {
-    final name = (customerRow['name'] as String?) ?? '';
-    final surname = (customerRow['surname'] as String?) ?? '';
+    final name = (customerRow['name']?.toString()) ?? '';
+    final surname = (customerRow['surname']?.toString()) ?? '';
     final fullName = '$name $surname'.trim();
     return CustomerInfo(
       name: fullName.isNotEmpty ? fullName : '-',
-      phone: (customerRow['phone'] as String?) ?? '-',
+      phone: (customerRow['phone']?.toString()) ?? '-',
       address: address.isNotEmpty ? address : '-',
       machine: machine.isNotEmpty ? machine : '-',
-      photoUrl: customerRow['photo_url'] as String?,
+      photoUrl: customerRow['photo_url']?.toString(),
     );
   }
 }
@@ -86,27 +86,7 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
   /// เงื่อนไข parts.length < 3 เป็นจริงเสมอ ฟังก์ชันเลย return false ตลอด ไม่ว่า
   /// จะถึงวันนัดจริงหรือยัง ช่างเลยเห็นข้อความ "ยังไม่ถึงวันนัด" ทั้งที่นัดวันนี้
   /// พอดี ตอนนี้แก้ให้แกะรูปแบบตัวเลขคั่น / ให้ตรงกับของจริงแล้ว
-  bool _isTodayOrPast(String? dateStr) {
-    if (dateStr == null || dateStr.trim().isEmpty) return false;
-    try {
-      final parts = dateStr.trim().split('/');
-      if (parts.length != 3) return false;
-
-      final day = int.parse(parts[0]);
-      final month = int.parse(parts[1]);
-      final buddhistYear = int.parse(parts[2]);
-      final year = buddhistYear - 543;
-
-      final appointmentDate = DateTime(year, month, day);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      return !appointmentDate.isAfter(today);
-    } catch (_) {
-      return true;
-    }
-  }
-
+  
   Future<void> _loadCustomerLocation() async {
     setState(() {
       _loading = true;
@@ -147,8 +127,8 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
     // ปลดคอมเมนต์และเปิดใช้งานจริงแล้ว
 
     // เงื่อนไขที่ 1: ต้องถึงวันนัดซ่อมก่อนเท่านั้น ช่างถึงจะเห็นตำแหน่งลูกค้า
-    final appointmentDate = repair['date'] as String?;
-    if (!_isTodayOrPast(appointmentDate)) {
+    final appointmentDate = repair['date']?.toString();
+    if (!db.isAppointmentTodayOrPast(appointmentDate)) {
       if (!mounted) return;
       setState(() {
         _errorMessage =
@@ -192,7 +172,7 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
     }
 
     // 2. ดึงข้อมูลลูกค้าเจ้าของงาน
-    final customerUsername = repair['customer_username'] as String?;
+    final customerUsername = repair['customer_username']?.toString();
     if (customerUsername == null || customerUsername.isEmpty) {
       if (!mounted) return;
       setState(() {
@@ -215,17 +195,17 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
 
     final customer = CustomerInfo.fromMap(
       customerRow,
-      address: (repair['location'] as String?) ?? '',
-      machine: (repair['machine'] as String?) ?? '',
+      address: (repair['location']?.toString()) ?? '',
+      machine: (repair['machine']?.toString()) ?? '',
     );
 
     // 3. ดึงพิกัดหมุดลูกค้า (dest_lat/dest_lng) ที่บันทึกไว้ตอนแจ้งซ่อม
-    double? destLat = (repair['dest_lat'] as num?)?.toDouble();
-    double? destLng = (repair['dest_lng'] as num?)?.toDouble();
+    double? destLat = toDoubleOrNull(repair['dest_lat']);
+    double? destLng = toDoubleOrNull(repair['dest_lng']);
 
     // ถ้าไม่มีพิกัดที่บันทึกไว้ ให้ลอง Geocode จากข้อความที่อยู่แทน
     if ((destLat == null || destLng == null) &&
-        (repair['location'] as String?)?.isNotEmpty == true) {
+        (repair['location']?.toString())?.isNotEmpty == true) {
       final geocoded = await GeoapifyService.geocodeAddress(repair['location']);
       if (geocoded != null) {
         destLat = geocoded['lat'];
@@ -263,8 +243,8 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
       gpsWarning = gpsResult.errorMessage;
       final techRow = await db.DatabaseHelper.instance
           .getTechnicianByUsername(techUsername);
-      startLat = (techRow?['current_lat'] as num?)?.toDouble();
-      startLng = (techRow?['current_lng'] as num?)?.toDouble();
+      startLat = toDoubleOrNull(techRow?['current_lat']);
+      startLng = toDoubleOrNull(techRow?['current_lng']);
     }
 
     double distKm = 0.0;
@@ -293,8 +273,8 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
     // "ช่างใกล้ถึงแล้ว" (ส่งแค่ครั้งเดียวต่องาน — ดู notifyIfTechnicianNearby)
     if (startLat != null && startLng != null && repairId != null) {
       final ticketLabel =
-          (repair['ticketNo'] as String?)?.trim().isNotEmpty == true
-              ? repair['ticketNo'] as String
+          (repair['ticketNo']?.toString())?.trim().isNotEmpty == true
+              ? repair['ticketNo'].toString()
               : '#$repairId';
       unawaited(db.DatabaseHelper.instance.notifyIfTechnicianNearby(
         repairId: repairId,

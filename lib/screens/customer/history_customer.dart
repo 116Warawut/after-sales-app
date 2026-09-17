@@ -175,13 +175,13 @@ class Ticket {
   });
 
   factory Ticket.fromMap(Map<String, dynamic> map) {
-    final rawStatus = map['status'] as String?;
+    final rawStatus = map['status']?.toString();
     // รองรับทั้งคอลัมน์ date และ created_at เผื่อใน DB ใช้ชื่อต่างกัน
-    final dateStr = (map['date'] ?? map['created_at']) as String?;
+    final dateStr = (map['date'] ?? map['created_at'])?.toString();
 
     // ⭐ [เพิ่มใหม่] logic เดียวกับ home_admin.dart — ห้ามแก้ไขให้ต่างกัน
     // ไม่งั้นหน้าลูกค้ากับหน้าแอดมินจะนับงาน "เร่งด่วน" ไม่ตรงกัน
-    final detail = (map['detail'] as String?) ?? '';
+    final detail = (map['detail']?.toString()) ?? '';
     final isSevere = detail.contains('[ความรุนแรง: เร่งด่วน]');
     final isAdminUrgent = map['is_urgent'] == true || map['is_urgent'] == 1;
 
@@ -191,10 +191,10 @@ class Ticket {
       // ใช้ resolveRecordId() ที่ยึดคีย์จริงเป็นหลักแทน (ดูเหตุผลใน
       // utils/firebase_number.dart)
       id: resolveRecordId(map),
-      ticketNo: (map['ticketNo'] as String?) ?? '#AS-${map['id'] ?? ''}',
+      ticketNo: (map['ticketNo']?.toString()) ?? '#AS-${map['id'] ?? ''}',
       status: TicketStatusX.fromDbStatus(rawStatus),
-      device: (map['machine'] as String?) ?? '-',
-      location: (map['location'] as String?) ?? '-',
+      device: (map['machine']?.toString()) ?? '-',
+      location: (map['location']?.toString()) ?? '-',
       subStatusLabel: rawStatus ?? '-',
       date: dateStr ?? '-',
       isUrgent: isSevere || isAdminUrgent, // ⭐ [เพิ่มใหม่]

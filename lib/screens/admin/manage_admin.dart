@@ -31,10 +31,10 @@ class AdminItem {
 
   factory AdminItem.fromMap(Map<String, dynamic> map) {
     return AdminItem(
-      username: (map['username'] as String?) ?? '',
-      adminName: (map['admin_name'] as String?) ?? '-',
-      adminCode: (map['admin_code'] as String?) ?? '-',
-      adminType: (map['admin_type'] as String?) ?? 'main',
+      username: (map['username']?.toString()) ?? '',
+      adminName: (map['admin_name']?.toString()) ?? '-',
+      adminCode: (map['admin_code']?.toString()) ?? '-',
+      adminType: (map['admin_type']?.toString()) ?? 'main',
     );
   }
 }

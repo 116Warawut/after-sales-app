@@ -44,7 +44,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     super.dispose();
   }
 
-  String get _role => (_account?['role'] as String?) ?? '';
+  String get _role => (_account?['role']?.toString()) ?? '';
 
   void _showSnack(String message, {bool isError = true}) {
     if (!mounted) return;
@@ -84,8 +84,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _account = account;
 
       // ดึงอีเมลจากฟิลด์ email ก่อน ถ้าไม่มีค่อย fallback ไป username
-      final foundEmail = (account['email'] as String?)?.trim();
-      final foundUsername = (account['username'] as String?)?.trim();
+      final foundEmail = (account['email']?.toString())?.trim();
+      final foundUsername = (account['username']?.toString())?.trim();
 
       if (foundEmail != null && foundEmail.isNotEmpty) {
         _targetEmail = foundEmail;
@@ -197,7 +197,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final targetIdentifier = (_account!['username'] as String?) ?? _targetEmail;
+      final targetIdentifier = (_account!['username']?.toString()) ?? _targetEmail;
       await db.DatabaseHelper.instance.updatePasswordForRole(
         targetIdentifier,
         _role,

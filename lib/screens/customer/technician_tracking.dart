@@ -148,27 +148,7 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
   /// เงื่อนไข parts.length < 3 เป็นจริงเสมอ ฟังก์ชันเลย return false ตลอด ไม่ว่า
   /// จะถึงวันนัดจริงหรือยัง ลูกค้าเลยเห็นข้อความ "ยังไม่ถึงวันนัด" ทั้งที่นัดวันนี้
   /// พอดี ตอนนี้แก้ให้แกะรูปแบบตัวเลขคั่น / ให้ตรงกับของจริงแล้ว
-  bool _isTodayOrPast(String? dateStr) {
-    if (dateStr == null || dateStr.trim().isEmpty) return false;
-    try {
-      final parts = dateStr.trim().split('/');
-      if (parts.length != 3) return false;
-
-      final day = int.parse(parts[0]);
-      final month = int.parse(parts[1]);
-      final buddhistYear = int.parse(parts[2]);
-      final year = buddhistYear - 543;
-
-      final appointmentDate = DateTime(year, month, day);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      return !appointmentDate.isAfter(today);
-    } catch (_) {
-      return true;
-    }
-  }
-
+  
   Future<void> _loadRealTrackingData() async {
     setState(() {
       _loading = true;
@@ -197,7 +177,7 @@ class _TechnicianTrackingPageState extends State<TechnicianTrackingPage> {
 
     // เงื่อนไขที่ 1: ต้องถึงวันนัดซ่อมก่อนเท่านั้น ลูกค้าถึงจะติดตามตำแหน่งช่างได้
     final appointmentDate = repair['date']?.toString();
-    if (!_isTodayOrPast(appointmentDate)) {
+    if (!db.isAppointmentTodayOrPast(appointmentDate)) {
       setState(() {
         _errorMessage =
             'สามารถติดตามตำแหน่งช่างได้ในวันนัดซ่อมเท่านั้น\n(วันนัดซ่อม: $appointmentDate)';

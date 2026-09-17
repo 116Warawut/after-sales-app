@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/cloudinary_service.dart';
 import 'package:after_sales/services.dart';
+import 'package:after_sales/utils/firebase_number.dart';
 import 'package:after_sales/widgets.dart';
 
 // ==========================================
@@ -39,12 +40,12 @@ class SparePartItem {
       // 🐛 [แก้บัค] เดิม `as int` แบบ hard cast — ถ้า id ที่มาจาก Firebase เป็น
       // ชนิดอื่น (เช่น num ที่ไม่ใช่ int ตรง ๆ) จะ throw TypeError ทำให้ทั้งหน้า
       // รายการอะไหล่พังตั้งแต่ตอน build รายการ (เหมือนบั๊กที่เคยแก้ในหน้าแจ้งเตือน)
-      id: (map['id'] as num?)?.toInt() ?? 0,
-      partName: (map['part_name'] as String?) ?? '-',
-      partCode: (map['part_code'] as String?) ?? '-',
-      price: (map['price'] as num?)?.toDouble() ?? 0,
-      stock: (map['stock'] as num?)?.toInt() ?? 0,
-      photoUrl: (map['photo_url'] as String?) ?? '',
+      id: toIntOrNull(map['id']) ?? 0,
+      partName: (map['part_name']?.toString()) ?? '-',
+      partCode: (map['part_code']?.toString()) ?? '-',
+      price: toDoubleOrNull(map['price']) ?? 0,
+      stock: toIntOrNull(map['stock']) ?? 0,
+      photoUrl: (map['photo_url']?.toString()) ?? '',
     );
   }
 
@@ -172,7 +173,7 @@ class _AdminSparePartPageState extends State<AdminSparePartPage>
   Map<String, List<Map<String, dynamic>>> get _requestsByTechnician {
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final r in _allRequests) {
-      final tech = (r['technician_username'] as String?) ?? '-';
+      final tech = (r['technician_username']?.toString()) ?? '-';
       grouped.putIfAbsent(tech, () => []).add(r);
     }
     return grouped;
@@ -241,9 +242,9 @@ class _AdminSparePartPageState extends State<AdminSparePartPage>
   Future<void> _approveRequest(Map<String, dynamic> request) async {
     final id = _asInt(request['id']);
     final partId = _asInt(request['part_id']);
-    final partName = request['part_name'] as String? ?? '-';
+    final partName = request['part_name']?.toString() ?? '-';
     final quantity = _asInt(request['quantity']) ?? 1;
-    final technician = request['technician_username'] as String? ?? '';
+    final technician = request['technician_username']?.toString() ?? '';
 
     if (id == null || partId == null) {
       _showSnack('ข้อมูลคำขอเบิกไม่ถูกต้อง กรุณาโหลดหน้าใหม่');
@@ -310,8 +311,8 @@ class _AdminSparePartPageState extends State<AdminSparePartPage>
     if (confirmed != true) return;
 
     final id = _asInt(request['id']);
-    final partName = request['part_name'] as String? ?? '-';
-    final technician = request['technician_username'] as String? ?? '';
+    final partName = request['part_name']?.toString() ?? '-';
+    final technician = request['technician_username']?.toString() ?? '';
 
     if (id == null) {
       _showSnack('ข้อมูลคำขอเบิกไม่ถูกต้อง กรุณาโหลดหน้าใหม่');
@@ -344,8 +345,8 @@ class _AdminSparePartPageState extends State<AdminSparePartPage>
   // 🗑️ ยืนยันและลบคำขอเบิกอะไหล่ออกจากประวัติ
   // ------------------------------------------
   Future<void> _deleteRequest(Map<String, dynamic> request) async {
-    final partName = request['part_name'] as String? ?? '-';
-    final technician = request['technician_username'] as String? ?? '-';
+    final partName = request['part_name']?.toString() ?? '-';
+    final technician = request['technician_username']?.toString() ?? '-';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -828,7 +829,7 @@ class _RequestRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = (request['status'] as String?) ?? 'รอดำเนินการ';
+    final status = (request['status']?.toString()) ?? 'รอดำเนินการ';
     final isPending = status == 'รอดำเนินการ';
     final isApproved = status == 'อนุมัติแล้ว';
 
@@ -869,7 +870,7 @@ class _RequestRow extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       'รหัส ${request['part_code'] ?? '-'} • จำนวน ${request['quantity'] ?? 1} • '
-                      '${formatNotificationDateTime(request['created_at'] as String?)}',
+                      '${formatNotificationDateTime(request['created_at']?.toString())}',
                       style: const TextStyle(
                         fontFamily: AppStyles.fontFamily,
                         fontSize: 12,

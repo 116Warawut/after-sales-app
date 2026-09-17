@@ -47,24 +47,24 @@ class CustomerItem {
   });
 
   factory CustomerItem.fromMap(Map<String, dynamic> map) {
-    final name = (map['name'] as String?) ?? '';
-    final surname = (map['surname'] as String?) ?? '';
+    final name = (map['name']?.toString()) ?? '';
+    final surname = (map['surname']?.toString()) ?? '';
     final fullName = '$name $surname'.trim();
     return CustomerItem(
-      username: (map['username'] as String?) ?? '',
+      username: (map['username']?.toString()) ?? '',
       fullName: fullName.isNotEmpty ? fullName : '-',
-      company: (map['company'] as String?) ?? '-',
-      phone: (map['phone'] as String?) ?? '-',
-      email: (map['email'] as String?) ?? '-',
-      address: (map['address'] as String?) ?? '-',
-      houseNo: (map['house_no'] as String?) ?? '',
-      moo: (map['moo'] as String?) ?? '',
-      tambon: (map['tambon'] as String?) ?? '',
-      amphoe: (map['amphoe'] as String?) ?? '',
-      changwat: (map['changwat'] as String?) ?? '',
-      postalCode: (map['postal_code'] as String?) ?? '',
+      company: (map['company']?.toString()) ?? '-',
+      phone: (map['phone']?.toString()) ?? '-',
+      email: (map['email']?.toString()) ?? '-',
+      address: (map['address']?.toString()) ?? '-',
+      houseNo: (map['house_no']?.toString()) ?? '',
+      moo: (map['moo']?.toString()) ?? '',
+      tambon: (map['tambon']?.toString()) ?? '',
+      amphoe: (map['amphoe']?.toString()) ?? '',
+      changwat: (map['changwat']?.toString()) ?? '',
+      postalCode: (map['postal_code']?.toString()) ?? '',
       // 🔴 [แก้บั๊ก] อ่าน photo_url จากข้อมูลดิบมาเก็บด้วย (ดูเหตุผลด้านบน)
-      photoUrl: (map['photo_url'] as String?) ?? '',
+      photoUrl: (map['photo_url']?.toString()) ?? '',
     );
   }
 }
