@@ -16,6 +16,17 @@ class PartItem {
   // 📷 [แก้ไข] เพิ่ม photoUrl — เดิมโมเดลนี้ไม่ได้อ่านฟิลด์นี้จาก Firebase เลย
   // ทำให้ต่อให้แอดมินอัปโหลดรูปไว้แล้ว หน้าเบิกของช่างก็ยังโชว์แต่ไอคอนเดิม
   final String photoUrl;
+  // 💰 [ใหม่] ราคาต่อหน่วย — เดิมโมเดลนี้ไม่มีฟิลด์นี้เลย ทั้งที่ตาราง
+  // spare_parts เก็บฟิลด์ 'price' ไว้อยู่แล้ว (หน้าเว็บอ่านฟิลด์เดียวกันนี้ไป
+  // แสดงผลปกติ) ทำให้หน้าเบิกของช่างไม่เคยโชว์ราคาให้เห็นเลย
+  final double price;
+  // 🐛 [แก้บัค] key ที่ใช้อ้างอิงในตะกร้าเบิก (_cart) — เดิมใช้ part.id ตรงๆ
+  // แต่ข้อมูลอะไหล่บางส่วนใน Firebase มีฟิลด์ 'id' เป็น 0 ซ้ำกันหลายรายการ (ข้อมูล
+  // เก่า/ย้ายมาจาก SQLite ที่ไม่ได้เซ็ต id ให้ครบ) ทำให้ทุกชิ้นที่ id=0 ไปชนกันใน
+  // ตะกร้าเป็นแถวเดียวกันหมด — เลือกชิ้นไหนก็เด้งขอบแดงทุกชิ้น และเพิ่มอะไหล่ชิ้นที่
+  // สองไม่ได้เพราะไปทับชิ้นแรกในตะกร้าตลอด ใช้ cartKey จาก Firebase key ของแถว
+  // นั้นแทน (_fbKey) ซึ่งไม่มีทางซ้ำกันได้ไม่ว่าฟิลด์ id ภายในจะถูกต้องหรือไม่
+  final String cartKey;
 
   PartItem({
     required this.id,
@@ -24,18 +35,29 @@ class PartItem {
     required this.stock,
     required this.isAvailable,
     this.photoUrl = '',
+    this.price = 0,
+    required this.cartKey,
   });
 
   factory PartItem.fromMap(Map<String, dynamic> map) {
     final stock = toIntOr(map['stock'], 0);
+    final id = toIntOr(map['id'], 0);
+    // ลำดับความสำคัญ: Firebase key จริงของแถว (ไม่ซ้ำแน่นอน) > id ตัวเลข (ถ้า
+    // มากกว่า 0 แปลว่าน่าเชื่อถือ) > รหัสอะไหล่ (กันเหนียวสุดท้ายถ้าข้อมูลแปลกมาก)
+    final fbKey = map['_fbKey']?.toString();
+    final cartKey = (fbKey != null && fbKey.isNotEmpty)
+        ? fbKey
+        : (id > 0 ? id.toString() : (map['part_code']?.toString() ?? ''));
     return PartItem(
-      id: toIntOr(map['id'], 0),
+      id: id,
       partName: (map['part_name']?.toString()) ?? '-',
       partCode: (map['part_code']?.toString()) ?? '-',
       stock: stock,
       isAvailable: stock > 0,
       // ⭐ ใช้ key เดียวกับที่แอดมินบันทึกไว้ ('photo_url')
       photoUrl: (map['photo_url']?.toString()) ?? '',
+      price: toDoubleOr(map['price'], 0),
+      cartKey: cartKey,
     );
   }
 }
@@ -66,8 +88,9 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
   List<PartItem> _allParts = [];
   String _query = '';
 
-  // 🛒 ตะกร้าเบิกอะไหล่ — key เป็น part.id กันเผลอเพิ่มชิ้นเดียวกันซ้ำเป็นแถวใหม่
-  final Map<int, _CartLine> _cart = {};
+  // 🛒 ตะกร้าเบิกอะไหล่ — key เป็น part.cartKey (Firebase key จริง) กันเผลอเพิ่ม
+  // ชิ้นเดียวกันซ้ำเป็นแถวใหม่ และกันชิ้นที่ id ในฐานข้อมูลชนกันแล้วไปทับกันเอง
+  final Map<String, _CartLine> _cart = {};
 
   @override
   void initState() {
@@ -119,7 +142,7 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
   // 🧾 เปิด popup รายละเอียดอะไหล่ + เลือกจำนวนที่จะเบิก
   // ---------------------------------------------------------------------
   void _openPartDetail(PartItem part) {
-    int quantity = _cart[part.id]?.quantity ?? 1;
+    int quantity = _cart[part.cartKey]?.quantity ?? 1;
     if (quantity > part.stock && part.stock > 0) quantity = part.stock;
     bool showStockWarning = false;
 
@@ -190,6 +213,17 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
                                   fontFamily: AppStyles.fontFamily,
                                   fontSize: 13,
                                   color: AppColors.textSubtitle,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              // 💰 [ใหม่] โชว์ราคาต่อหน่วยในหน้ารายละเอียดด้วย
+                              Text(
+                                '${part.price.toStringAsFixed(0)} บาท / ชิ้น',
+                                style: const TextStyle(
+                                  fontFamily: AppStyles.fontFamily,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primary,
                                 ),
                               ),
                               const SizedBox(height: 8),
@@ -374,11 +408,11 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
       return;
     }
     setState(() {
-      final existing = _cart[part.id];
+      final existing = _cart[part.cartKey];
       if (existing != null) {
         existing.quantity = quantity;
       } else {
-        _cart[part.id] = _CartLine(part: part, quantity: quantity);
+        _cart[part.cartKey] = _CartLine(part: part, quantity: quantity);
       }
     });
     _snack('เพิ่ม "${part.partName}" (จำนวน $quantity) ลงตะกร้าเบิกแล้ว');
@@ -493,6 +527,17 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
                                           color: AppColors.textSubtitle,
                                         ),
                                       ),
+                                      const SizedBox(height: 2),
+                                      // 💰 [ใหม่] โชว์ราคารวมต่อรายการในตะกร้า
+                                      Text(
+                                        '${line.part.price.toStringAsFixed(0)} x ${line.quantity} = ${(line.part.price * line.quantity).toStringAsFixed(0)} บาท',
+                                        style: const TextStyle(
+                                          fontFamily: AppStyles.fontFamily,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -501,7 +546,7 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
                                       color: AppColors.redText, size: 20),
                                   tooltip: 'นำออกจากตะกร้า',
                                   onPressed: () {
-                                    setState(() => _cart.remove(line.part.id));
+                                    setState(() => _cart.remove(line.part.cartKey));
                                     setSheetState(() {});
                                     if (_cart.isEmpty && sheetContext.mounted) {
                                       Navigator.pop(sheetContext);
@@ -512,6 +557,33 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
                             ),
                           );
                         },
+                      ),
+                    ),
+                    // 💰 [ใหม่] ยอดรวมราคาทั้งตะกร้า
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'ยอดรวม',
+                            style: TextStyle(
+                              fontFamily: AppStyles.fontFamily,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textMain,
+                            ),
+                          ),
+                          Text(
+                            '${lines.fold<double>(0, (sum, l) => sum + l.part.price * l.quantity).toStringAsFixed(0)} บาท',
+                            style: const TextStyle(
+                              fontFamily: AppStyles.fontFamily,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     Padding(
@@ -563,7 +635,14 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
       for (final line in lines) {
         await db.DatabaseHelper.instance.createPartRequest(
           technicianUsername: technician,
-          partId: line.part.id,
+          // 🐛 [แก้บัค] เดิมส่ง line.part.id (ฟิลด์ id ภายในของอะไหล่ ซึ่งข้อมูล
+          // เก่าบางส่วนมีค่าเป็น 0 ซ้ำกันหลายชิ้น) ทำให้ตอนแอดมินอนุมัติคำขอแล้ว
+          // ระบบไปตัดสต๊อก/ค้นหาราคาผิดชิ้น (getSparePartById()/
+          // updateSparePartStock() หาโหนดจาก part_id ตรงๆ ไม่เจอเพราะคีย์จริงใน
+          // Firebase ไม่ใช่ 0) ส่งผลให้ราคาอะไหล่ไม่ขึ้นตอนออกบิลทั้งในแอปและเว็บ
+          // ด้วย — เปลี่ยนมาส่ง cartKey (Firebase key จริงของแถวอะไหล่) แทน ซึ่ง
+          // ไม่มีทางซ้ำกันได้ไม่ว่าฟิลด์ id ภายในจะถูกต้องหรือไม่
+          partId: line.part.cartKey,
           partName: line.part.partName,
           partCode: line.part.partCode,
           quantity: line.quantity,
@@ -608,7 +687,10 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppHeader(
-            title: widget.repairId != null ? 'เบิกอะไหล่สำหรับงานนี้' : 'เบิกอะไหล่',
+            // 🐛 [แก้บัค] เดิมเปลี่ยนหัวข้อเป็น "เบิกอะไหล่สำหรับงานนี้" ถ้าเปิด
+            // มาจากหน้ารายละเอียดงาน (มี repairId) — ตามที่ขอให้ใช้คำว่า
+            // "เบิกอะไหล่" เฉย ๆ เหมือนกันทุกกรณี
+            title: 'เบิกอะไหล่',
             showBack: true,
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -767,7 +849,7 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
   // 3. การ์ดแสดงแต่ละรายการ — แสดงแค่ มี / หมด, แตะเพื่อดูรายละเอียด
   // ==========================================
   Widget _buildPartCard(PartItem part) {
-    final inCart = _cart.containsKey(part.id);
+    final inCart = _cart.containsKey(part.cartKey);
 
     return Material(
       color: Colors.transparent,
@@ -829,10 +911,22 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 2),
+                    // 💰 [ใหม่] โชว์ราคาต่อหน่วยให้ตรงกับหน้าเว็บ (เดิมโมเดลนี้
+                    // ไม่มีฟิลด์ price เลย เลยไม่เคยแสดงราคาให้ช่างเห็น)
+                    Text(
+                      '${part.price.toStringAsFixed(0)} บาท / ชิ้น',
+                      style: const TextStyle(
+                        fontFamily: AppStyles.fontFamily,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
                     if (inCart) ...[
                       const SizedBox(height: 4),
                       Text(
-                        'อยู่ในตะกร้า x${_cart[part.id]!.quantity}',
+                        'อยู่ในตะกร้า x${_cart[part.cartKey]!.quantity}',
                         style: const TextStyle(
                           fontFamily: AppStyles.fontFamily,
                           fontSize: 12,

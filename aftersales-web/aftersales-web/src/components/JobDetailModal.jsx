@@ -363,6 +363,20 @@ function getProblemPhotos(job) {
   return singles;
 }
 
+// 🆕 [ใหม่] รายการอะไหล่ที่ "อนุมัติแล้ว" สำหรับงานซ่อมนี้ (repair_id ตรงกัน) —
+// เอาเฉพาะสถานะ 'อนุมัติแล้ว' เพราะคำขอที่ยังรอ/ถูกปฏิเสธยังไม่ถือว่าเป็น
+// อะไหล่ที่ "ใช้" จริงในงานนี้ (สถานะดู updatePartRequestStatus() ใน
+// services.dart)
+function getUsedParts(job, partRequests) {
+  if (!Array.isArray(partRequests)) return [];
+  return partRequests.filter(
+    (p) =>
+      p &&
+      p.repair_id?.toString() === job.id?.toString() &&
+      p.status === "อนุมัติแล้ว"
+  );
+}
+
 function getRepairReport(job) {
   const text = typeof job.report_problem_detail === "string" ? job.report_problem_detail.trim() : "";
   return {
@@ -722,6 +736,10 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
   const { data: customers = [] } = useDbList("customers");
   const { data: repairs = [] } = useDbList("repairs");
   const { data: dbMachines = [] } = useDbList("machines");
+  // 🆕 [ใหม่] ดึงรายการคำขอเบิกอะไหล่มาด้วย เพื่อโชว์ "รายการอะไหล่ที่ใช้" ใน
+  // โซนรายงานการซ่อมด้านล่าง (เดิมหน้านี้ไม่มีข้อมูลอะไหล่เลย ทั้งที่ฝั่งแอป
+  // บันทึกไว้ใน part_requests อยู่แล้ว ดู createPartRequest() ใน services.dart)
+  const { data: partRequests = [] } = useDbList("part_requests");
 
   if (!jobProp) return null;
 
@@ -756,7 +774,8 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
   const ratingInfo = extractRating(job);
   const problemPhotos = getProblemPhotos(job);
   const report = getRepairReport(job);
-  const hasReport = !!(report.text || report.beforePhoto || report.afterPhoto || report.slipPhoto);
+  const usedParts = getUsedParts(job, partRequests);
+  const hasReport = !!(report.text || report.beforePhoto || report.afterPhoto || report.slipPhoto || usedParts.length);
   const issue = getIssueReport(job);
   const hasIssue = effStatus === "มีปัญหา" || !!(issue.detail || issue.photos.length);
 
@@ -913,6 +932,28 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
                           <a href={report.slipPhoto} target="_blank" rel="noreferrer" className="block w-28 aspect-square rounded-lg overflow-hidden border border-slate-200">
                             <img src={report.slipPhoto} alt="สลิปโอนเงิน" className="w-full h-full object-cover" />
                           </a>
+                        </div>
+                      ) : null}
+                      {/* 🆕 [ใหม่] รายการอะไหล่ที่ใช้ในงานนี้ (คำขอเบิกที่แอดมินอนุมัติแล้ว) */}
+                      {usedParts.length > 0 ? (
+                        <div>
+                          <span className="text-slate-400 block mb-1">รายการอะไหล่ที่ใช้:</span>
+                          <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg overflow-hidden">
+                            {usedParts.map((p, i) => (
+                              <li
+                                key={p.id ?? i}
+                                className="flex items-center justify-between px-2.5 py-1.5 bg-white"
+                              >
+                                <span className="text-slate-700">
+                                  {p.part_name || "-"}
+                                  {p.part_code ? (
+                                    <span className="text-slate-400"> ({p.part_code})</span>
+                                  ) : null}
+                                </span>
+                                <span className="font-medium text-slate-800">x{p.quantity ?? "-"}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       ) : null}
                     </div>

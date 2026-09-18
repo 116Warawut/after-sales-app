@@ -101,7 +101,14 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
   List<Map<String, dynamic>> _availablePartRequests = [];
   // เก็บราคาต่อหน่วยของแต่ละคำขอ (ดึงจากตารางอะไหล่ ณ ตอนโหลด) แยกจาก request เอง
   // เพราะ part_requests ไม่ได้เก็บราคาไว้ (เก็บแค่ชื่อ/รหัส/จำนวนที่เบิก)
-  final Map<int, double> _partRequestUnitPrice = {};
+  // 🐛 [แก้บัค] เดิมเป็น Map<int, double> คีย์ด้วย toIntOrNull(part_id) — แต่คีย์
+  // จริงของอะไหล่ใน Firebase มีตัวนำหน้า 'k' เสมอ (เช่น "k17" ดู _k() ใน
+  // services.dart) ตั้งแต่ฝั่งช่างเปลี่ยนมาส่ง part_id เป็น Firebase key ที่
+  // ถูกต้องแทนเลข id ภายในที่อาจซ้ำกัน (ดู spare_part_tec_viewer.dart)
+  // toIntOrNull("k17") จะ parse ไม่ได้เลยคืน null เสมอ ทำให้ราคาอะไหล่หาไม่เจอ/
+  // ไม่ขึ้นอีกครั้ง — เปลี่ยนคีย์เป็น String (ใช้ .toString() ของค่า part_id
+  // ตรงๆ ไม่ต้อง parse เป็น int) กันปัญหานี้ถาวร
+  final Map<String, double> _partRequestUnitPrice = {};
 
   // ตัวแปรควบคุมภาษี
   bool _includeVat = true; // เปิด/ปิด การคิด VAT 7%
@@ -235,12 +242,14 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
       final requests = await db.DatabaseHelper.instance
           .getApprovedPartRequestsForRepair(repairId);
 
-      final prices = <int, double>{};
+      final prices = <String, double>{};
       for (final r in requests) {
-        final partId = toIntOrNull(r['part_id']);
-        if (partId == null || prices.containsKey(partId)) continue;
+        final partId = r['part_id'];
+        if (partId == null) continue;
+        final partKey = partId.toString();
+        if (prices.containsKey(partKey)) continue;
         final part = await db.DatabaseHelper.instance.getSparePartById(partId);
-        prices[partId] = toDoubleOrNull(part?['price']) ?? 0;
+        prices[partKey] = toDoubleOrNull(part?['price']) ?? 0;
       }
 
       if (!mounted) return;
@@ -262,10 +271,10 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
   /// กันไม่ให้ถูกดึงมาเสนอซ้ำในบิลใบอื่นทีหลัง
   Future<void> _addPartRequestToInvoice(Map<String, dynamic> request) async {
     final requestId = toIntOr(request['id'], 0);
-    final partId = toIntOrNull(request['part_id']);
+    final partId = request['part_id'];
     final quantity = toIntOrNull(request['quantity']) ?? 1;
     final unitPrice =
-        partId != null ? (_partRequestUnitPrice[partId] ?? 0) : 0.0;
+        partId != null ? (_partRequestUnitPrice[partId.toString()] ?? 0) : 0.0;
 
     setState(() {
       _items.add(InvoiceItem(
@@ -570,11 +579,32 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
       // 🆕 [ใหม่] ส่ง isWarrantyCovered ไปด้วย — ถ้าอยู่ในประกัน
       // updateRepairBill() จะมาร์กบิลนี้เป็น "ชำระแล้ว" ให้อัตโนมัติ (ไม่ต้องรอ
       // ลูกค้าจ่ายเงินจริง) แต่ไม่นับเป็นรายได้ตอนสรุปยอด
+      // 🐛 [แก้บัค] เดิมส่งแค่ billId/totalPrice ทำให้รายการอะไหล่ ราคาต่อชิ้น
+      // ส่วนลด และภาษี ที่กรอก/คำนวณไว้ในหน้านี้หายไปหมดตอนบันทึกจริง — เพิ่ม
+      // การแปลง _items (InvoiceItem: quantity/unitPrice/totalPrice) ให้เป็น
+      // รูปแบบเดียวกับที่เว็บใช้ (name/qty/price/subtotal ดู
+      // aftersales-web/src/pages/FinancePage.jsx) พร้อมส่ง subtotal/ส่วนลด/
+      // vat/wht ไปด้วย เพื่อให้ใบแจ้งหนี้ที่ออกจากแอปแสดงรายละเอียดครบเหมือน
+      // ออกจากเว็บ
+      final invoiceItemsForDb = _items
+          .map((item) => {
+                'name': item.name,
+                'qty': item.quantity,
+                'price': item.unitPrice,
+                'subtotal': item.totalPrice,
+              })
+          .toList();
+
       await db.DatabaseHelper.instance.updateRepairBill(
         repairId,
         billId: _invoiceNumberController.text.trim(),
         totalPrice: _grandTotal,
         isWarrantyCovered: _isWarrantyCovered,
+        items: invoiceItemsForDb,
+        subtotal: _subtotal,
+        discount: _discountAmount,
+        vatAmount: _vatAmount,
+        whtAmount: _withholdingTaxAmount,
       );
 
       // 4. แจ้งเตือนลูกค้าว่ามีใบแจ้งหนี้ใหม่ — ข้อความต่างกันถ้าอยู่ในประกัน
@@ -1069,7 +1099,7 @@ class _AdminCreateInvoicePageState extends State<AdminCreateInvoicePage> {
               child: _SuggestedPartTile(
                 request: _availablePartRequests[i],
                 unitPrice: _partRequestUnitPrice[
-                        toIntOrNull(_availablePartRequests[i]['part_id'])] ??
+                        _availablePartRequests[i]['part_id']?.toString()] ??
                     0,
                 money: _money,
                 onAdd: () =>

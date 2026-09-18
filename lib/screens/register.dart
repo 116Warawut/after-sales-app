@@ -34,6 +34,22 @@ class _ThaiProvince {
   _ThaiProvince(this.name, this.amphures);
 }
 
+/// ตัดคำนำหน้าจังหวัด/อำเภอ/ตำบล ที่อาจติดมากับข้อมูลดิบใน thai_address.json
+/// ออกก่อน (เช่น "เขตพระนคร") ป้องกันขึ้นซ้ำตอนเลือกคำนำหน้าเอง (ดู
+/// _buildFullAddress() ด้านล่าง)
+String _cleanAddressPrefix(String? text) {
+  if (text == null) return '';
+  var s = text.trim();
+  if (s == '-' || s.isEmpty) return '';
+  const prefixes = ['อำเภอ', 'อ.', 'อ ', 'เขต', 'ตำบล', 'ต.', 'ต ', 'แขวง'];
+  for (final p in prefixes) {
+    if (s.startsWith(p)) {
+      s = s.substring(p.length).trim();
+    }
+  }
+  return s;
+}
+
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -164,19 +180,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   /// รวมช่องที่อยู่ย่อยทั้งหมดเป็นข้อความที่อยู่เต็ม (ใช้แสดงผล/ค้นหาพิกัดผ่าน Geoapify)
+  /// 🐛 [แก้บัค] เดิมใช้ 'ต.'/'อ.' นำหน้าตายตัวทุกจังหวัด แต่กรุงเทพมหานคร
+  /// ใช้ "แขวง"/"เขต" (ดูรายละเอียดปัญหาเดียวกันใน repair_form.dart)
   String _buildFullAddress() {
     final houseNo = _houseNoController.text.trim();
     final moo = _mooController.text.trim();
-    final tambon = _tambonController.text.trim();
-    final amphoe = _amphoeController.text.trim();
-    final changwat = _changwatController.text.trim();
+    final tambon = _cleanAddressPrefix(_tambonController.text);
+    final amphoe = _cleanAddressPrefix(_amphoeController.text);
+    final changwat = _cleanAddressPrefix(_changwatController.text);
     final postalCode = _postalCodeController.text.trim();
+    final isBangkok = changwat == 'กรุงเทพมหานคร';
 
     final parts = <String>[
       if (houseNo.isNotEmpty) houseNo,
       if (moo.isNotEmpty) 'หมู่ $moo',
-      if (tambon.isNotEmpty) 'ต.$tambon',
-      if (amphoe.isNotEmpty) 'อ.$amphoe',
+      if (tambon.isNotEmpty) '${isBangkok ? 'แขวง' : 'ต.'}$tambon',
+      if (amphoe.isNotEmpty) '${isBangkok ? 'เขต' : 'อ.'}$amphoe',
       if (changwat.isNotEmpty) 'จ.$changwat',
       if (postalCode.isNotEmpty) postalCode,
     ];

@@ -200,16 +200,25 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
   String _buildFullAddress() {
     final houseNo = _houseNoController.text.trim();
     final moo = _mooController.text.trim();
-    final tambon = _tambonController.text.trim();
-    final amphoe = _amphoeController.text.trim();
-    final changwat = _changwatController.text.trim();
+    // 🐛 [แก้บัค] เดิมใช้คำว่า 'ตำบล'/'อำเภอ' นำหน้าตายตัวทุกจังหวัด แต่ใน
+    // กรุงเทพมหานคร หน่วยการปกครองย่อยเรียกว่า "แขวง"/"เขต" ไม่ใช่ "ตำบล"/
+    // "อำเภอ" (ตามที่ผู้ใช้แจ้ง: ที่อยู่ที่บันทึกออกมาผิดเป็น "ตำบลวัดอรุณ
+    // อำเภอบางกอกใหญ่" ทั้งที่ควรเป็น "แขวงวัดอรุณ เขตบางกอกใหญ่") นอกจากนี้
+    // ข้อมูลดิบใน thai_address.json บางรายการก็มีคำว่า "เขต" ติดมาในชื่ออยู่
+    // แล้ว (เช่น "เขตพระนคร") ทำให้ขึ้นซ้ำเป็น "อำเภอเขตพระนคร" — ใช้
+    // _cleanAddressPrefix() ตัดคำนำหน้าที่อาจติดมาออกก่อน แล้วค่อยเลือกคำ
+    // นำหน้าที่ถูกต้องเองตามจังหวัดอีกที
+    final tambon = _cleanAddressPrefix(_tambonController.text);
+    final amphoe = _cleanAddressPrefix(_amphoeController.text);
+    final changwat = _cleanAddressPrefix(_changwatController.text);
     final postalCode = _zipCodeController.text.trim();
+    final isBangkok = changwat == 'กรุงเทพมหานคร';
 
     final parts = <String>[
       if (houseNo.isNotEmpty) houseNo,
       if (moo.isNotEmpty) 'หมู่ $moo',
-      if (tambon.isNotEmpty) 'ตำบล$tambon',
-      if (amphoe.isNotEmpty) 'อำเภอ$amphoe',
+      if (tambon.isNotEmpty) '${isBangkok ? 'แขวง' : 'ตำบล'}$tambon',
+      if (amphoe.isNotEmpty) '${isBangkok ? 'เขต' : 'อำเภอ'}$amphoe',
       if (changwat.isNotEmpty) 'จังหวัด$changwat',
       if (postalCode.isNotEmpty) postalCode,
       'ประเทศไทย',
@@ -460,6 +469,7 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
         'customer_username': currentUsername,
         'machine_id': _selectedMachine?.id,
         'machine': _selectedMachine?.modelName ?? 'อุปกรณ์บริการทั่วไป',
+        'serial_number': _selectedMachine?.serialNumber,
         'date': '${now.day}/${now.month}/${now.year + 543}',
         'location': fullAddress,
         'status': 'รอจัดสรรช่าง',

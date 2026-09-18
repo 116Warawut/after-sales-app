@@ -241,7 +241,16 @@ class _AdminSparePartPageState extends State<AdminSparePartPage>
   // ------------------------------------------
   Future<void> _approveRequest(Map<String, dynamic> request) async {
     final id = _asInt(request['id']);
-    final partId = _asInt(request['part_id']);
+    // 🐛 [แก้บัค] เดิม cast part_id เป็น int ด้วย _asInt() ตรงๆ — แต่คีย์จริงของ
+    // อะไหล่ใน Firebase มีตัวนำหน้า 'k' เสมอ (ดู _k() ใน services.dart เช่น
+    // "k17") ตั้งแต่แก้ให้ฝั่งช่างส่ง part_id เป็น Firebase key ที่ถูกต้องแทน
+    // เลขที่ id ภายในที่อาจซ้ำกัน (ดู spare_part_tec_viewer.dart) ค่า part_id
+    // เลยกลายเป็นสตริงแบบ "k17" ซึ่ง int.tryParse() แปลงไม่ได้ (_asInt คืน null
+    // เสมอ) ทำให้ระบบเข้าใจผิดว่า "ข้อมูลคำขอเบิกไม่ถูกต้อง" ทั้งที่จริงข้อมูล
+    // ถูกต้องอยู่แล้ว — เก็บ part_id ไว้เป็น dynamic ตามที่บันทึกจริงแทน ส่งต่อ
+    // ให้ getSparePartById()/updateSparePartStock() ซึ่งรองรับได้ทั้งเลขล้วนและ
+    // สตริงมีตัวนำหน้า k อยู่แล้ว (ผ่าน _k() ภายใน)
+    final partId = request['part_id'];
     final partName = request['part_name']?.toString() ?? '-';
     final quantity = _asInt(request['quantity']) ?? 1;
     final technician = request['technician_username']?.toString() ?? '';

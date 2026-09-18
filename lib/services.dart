@@ -1456,6 +1456,21 @@ class DatabaseHelper {
     required double totalPrice,
     String? invoiceNo,
     bool isWarrantyCovered = false,
+    // 🐛 [แก้บัค] เดิมฟังก์ชันนี้บันทึกแค่ยอดรวม (total_price) ลง Firebase
+    // ไม่มีรายการอะไหล่/ค่าแรง ไม่มี subtotal/ส่วนลด/ภาษี เลย ทั้งที่หน้าออกบิล
+    // ในแอป (admin_create_invoice.dart) คำนวณครบอยู่แล้ว — ผลคือใบแจ้งหนี้ที่
+    // ออกจากแอปไปเปิดดูฝั่งเว็บ (FinancePage.jsx/JobDetailModal.jsx) เห็นแต่
+    // ยอดรวมอย่างเดียว ไม่มีรายละเอียดเหมือนใบแจ้งหนี้ที่ออกจากเว็บเอง — เพิ่ม
+    // พารามิเตอร์รับรายละเอียดบิลมาบันทึกด้วยชื่อฟิลด์เดียวกับที่เว็บใช้
+    // (invoice_items/invoice_subtotal/invoice_discount/invoice_vat_amount/
+    // invoice_wht_amount ดู nextInvoiceNumber()/handleSave() ใน
+    // aftersales-web/src/pages/FinancePage.jsx) เพื่อให้บิลจากทั้งสองฝั่งอ่าน
+    // ข้อมูลชุดเดียวกันได้ครบเหมือนกัน
+    List<Map<String, dynamic>>? items,
+    double? subtotal,
+    double? discount,
+    double? vatAmount,
+    double? whtAmount,
   }) async {
     if (id == null || billId.trim().isEmpty || totalPrice < 0) {
       throw const FormatException('ข้อมูลใบแจ้งหนี้ไม่ถูกต้อง');
@@ -1466,13 +1481,23 @@ class DatabaseHelper {
     final now = DateTime.now().toIso8601String();
     final values = <String, dynamic>{
       'bill_id': billId.trim(),
+      // 🐛 [แก้บัค] เดิมเติม 'INV-' นำหน้า billId ซ้ำอีกชั้น ทั้งที่ billId ที่ส่ง
+      // เข้ามา (ค่าเริ่มต้นจาก _invoiceNumberController ใน
+      // admin_create_invoice.dart) ก็ขึ้นต้นด้วย 'INV-' อยู่แล้ว ทำให้เลขที่บิล
+      // กลายเป็น 'INV-INV-xxxxx' (เห็น "INV INV" ซ้ำกันตอนออกบิลจากแอป) — ใช้
+      // billId ตรง ๆ แทน (invoiceNo ที่ส่งมาเอง ถ้ามี ยังคงเคารพค่านั้นก่อนเสมอ)
       'invoice_no': (invoiceNo?.trim().isNotEmpty ?? false)
           ? invoiceNo!.trim()
-          : 'INV-${billId.trim()}',
+          : billId.trim(),
       'invoice_date': now,
       'total_price': totalPrice,
       'is_warranty_covered': isWarrantyCovered,
     };
+    if (items != null) values['invoice_items'] = items;
+    if (subtotal != null) values['invoice_subtotal'] = subtotal;
+    if (discount != null) values['invoice_discount'] = discount;
+    if (vatAmount != null) values['invoice_vat_amount'] = vatAmount;
+    if (whtAmount != null) values['invoice_wht_amount'] = whtAmount;
     if (isWarrantyCovered) {
       values['is_paid'] = 1;
       values['receipt_no'] = 'WARRANTY-${billId.trim()}';

@@ -241,6 +241,22 @@ class Machine {
   }
 }
 
+/// ตัดคำนำหน้าจังหวัด/อำเภอ/ตำบล ที่อาจติดมากับข้อมูลดิบออก (เช่น "เขตพระนคร"
+/// หรือ "แขวงวังบูรพาภิรมย์") ก่อนจะเลือกคำนำหน้าที่ถูกต้องเองอีกที ป้องกัน
+/// ไม่ให้ขึ้นซ้ำ (ดู fullAddress ด้านล่าง)
+String _cleanTambonAmphoePrefix(String? text) {
+  if (text == null) return '';
+  var s = text.trim();
+  if (s == '-' || s.isEmpty) return '';
+  const prefixes = ['อำเภอ', 'อ.', 'อ ', 'เขต', 'ตำบล', 'ต.', 'ต ', 'แขวง'];
+  for (final p in prefixes) {
+    if (s.startsWith(p)) {
+      s = s.substring(p.length).trim();
+    }
+  }
+  return s;
+}
+
 /// Model สำหรับที่อยู่ติดตั้งเครื่องจักร
 @immutable
 class Address {
@@ -302,13 +318,27 @@ class Address {
   }
 
   /// จัดฟอร์แมตที่อยู่อย่างชาญฉลาด (ถ้าไม่มีหมู่ หรือเป็น '-' จะข้ามให้โดยอัตโนมัติ)
+  /// 🐛 [แก้บัค] เดิมใช้ 'ต.'/'อ.' นำหน้าตายตัวทุกจังหวัด แต่ในกรุงเทพมหานคร
+  /// หน่วยการปกครองย่อยเรียกว่า "แขวง"/"เขต" ไม่ใช่ "ตำบล"/"อำเภอ" (เช่น
+  /// ที่อยู่จริงควรเป็น "แขวงวัดอรุณ เขตบางกอกใหญ่" ไม่ใช่ "ต.วัดอรุณ
+  /// อ.บางกอกใหญ่") นอกจากนี้ข้อมูลดิบบางรายการใน thai_address.json มีคำว่า
+  /// "เขต"/"แขวง" ติดมาในชื่ออยู่แล้ว ทำให้ขึ้นซ้ำเป็น "อ.เขตพระนคร" — ตัดคำ
+  /// นำหน้าที่อาจติดมาออกก่อนด้วย _cleanTambonAmphoePrefix() แล้วค่อยเลือกคำ
+  /// นำหน้าที่ถูกต้องตามจังหวัดอีกที
   String get fullAddress {
     final parts = <String>[];
+    final isBangkok = changwat.trim() == 'กรุงเทพมหานคร';
+    final cleanTambon = _cleanTambonAmphoePrefix(tambon);
+    final cleanAmphoe = _cleanTambonAmphoePrefix(amphoe);
 
     if (houseNo.isNotEmpty && houseNo != '-') parts.add(houseNo);
     if (moo.isNotEmpty && moo != '-') parts.add('หมู่ $moo');
-    if (tambon.isNotEmpty && tambon != '-') parts.add('ต.$tambon');
-    if (amphoe.isNotEmpty && amphoe != '-') parts.add('อ.$amphoe');
+    if (cleanTambon.isNotEmpty && cleanTambon != '-') {
+      parts.add('${isBangkok ? 'แขวง' : 'ต.'}$cleanTambon');
+    }
+    if (cleanAmphoe.isNotEmpty && cleanAmphoe != '-') {
+      parts.add('${isBangkok ? 'เขต' : 'อ.'}$cleanAmphoe');
+    }
     if (changwat.isNotEmpty && changwat != '-') parts.add('จ.$changwat');
     if (zipCode.isNotEmpty && zipCode != '-') parts.add(zipCode);
 
