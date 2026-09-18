@@ -4,6 +4,7 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:after_sales/utils/thai_address.dart';
 
 
 /// Technician profile model - โหลด/บันทึกจริงกับตาราง `technicians` ผ่าน DatabaseHelper
@@ -68,13 +69,20 @@ class TechnicianProfile {
   /// รวมฟิลด์ที่อยู่แยกส่วนเป็นข้อความเดียวสำหรับแสดงผล — ถ้ายังไม่กรอกอะไรเลย
   /// จะ fallback ไปใช้ค่าเดิมในคอลัมน์ 'address' (ข้อมูลเก่าก่อนแยกฟิลด์) แล้วค่อย
   /// โชว์ '-' ถ้าไม่มีอะไรเลยจริง ๆ
+  /// รวมฟิลด์ที่อยู่แยกส่วนเป็นข้อความเดียวสำหรับแสดงผล — ถ้ายังไม่กรอกอะไรเลย
+  /// จะ fallback ไปใช้ค่าเดิมในคอลัมน์ 'address' (ข้อมูลเก่าก่อนแยกฟิลด์) แล้วค่อย
+  /// โชว์ '-' ถ้าไม่มีอะไรเลยจริง ๆ
+  /// 🐛 [แก้บัค] เดิมใช้ 'ตำบล'/'อำเภอ' นำหน้าตายตัวทุกจังหวัด แต่กรุงเทพมหานคร
+  /// ใช้ "แขวง"/"เขต" — ใช้ formatThaiAddress() ที่เลือกคำนำหน้าถูกต้องเองแทน
   String get formattedAddress {
     final parts = <String>[
       if (houseNo.isNotEmpty) houseNo,
       if (moo.isNotEmpty) 'หมู่ $moo',
-      if (tambon.isNotEmpty) 'ตำบล$tambon',
-      if (amphoe.isNotEmpty) 'อำเภอ$amphoe',
-      if (changwat.isNotEmpty) 'จังหวัด$changwat',
+      if (tambon.isNotEmpty)
+        '${isBangkokProvince(changwat) ? 'แขวง' : 'ตำบล'}${cleanThaiAddressPrefix(tambon)}',
+      if (amphoe.isNotEmpty)
+        '${isBangkokProvince(changwat) ? 'เขต' : 'อำเภอ'}${cleanThaiAddressPrefix(amphoe)}',
+      if (changwat.isNotEmpty) 'จังหวัด${cleanThaiAddressPrefix(changwat)}',
       if (postalCode.isNotEmpty) postalCode,
     ];
     if (parts.isNotEmpty) return parts.join(' ');
@@ -96,6 +104,9 @@ class _ProfileTechnicianPageState extends State<ProfileTechnicianPage> {
   // ปุ่มนี้ก่อน ตอนนี้สลับเป็น: ปกติซ่อนดินสอไว้ก่อน กดปุ่มแล้วค่อยโชว์ดินสอ
   // ทุกแถวพร้อมกัน แล้วปุ่มเปลี่ยนเป็น "เสร็จสิ้น" ให้กดปิดโหมดแก้ไขได้
   bool _isEditMode = false;
+  // 🆕 [ใหม่] รายชื่อจังหวัด/อำเภอ/ตำบล — ใช้กับช่องค้นหาแบบ Autocomplete ตอน
+  // แก้ไขที่อยู่ (โหลดครั้งเดียวตอนเปิดหน้า)
+  List<ThaiProvince> _thaiProvinces = [];
   TechnicianProfile _profile = TechnicianProfile(
     username: '-',
     techName: '-',
@@ -111,6 +122,10 @@ class _ProfileTechnicianPageState extends State<ProfileTechnicianPage> {
   void initState() {
     super.initState();
     _loadProfile();
+    loadThaiProvinces().then((provinces) {
+      if (!mounted) return;
+      setState(() => _thaiProvinces = provinces);
+    });
   }
 
   Future<void> _loadProfile() async {
@@ -187,9 +202,12 @@ class _ProfileTechnicianPageState extends State<ProfileTechnicianPage> {
   Future<void> _editAddress() async {
     final houseNoCtrl = TextEditingController(text: _profile.houseNo);
     final mooCtrl = TextEditingController(text: _profile.moo);
-    final tambonCtrl = TextEditingController(text: _profile.tambon);
-    final amphoeCtrl = TextEditingController(text: _profile.amphoe);
-    final changwatCtrl = TextEditingController(text: _profile.changwat);
+    final tambonCtrl =
+        TextEditingController(text: cleanThaiAddressPrefix(_profile.tambon));
+    final amphoeCtrl =
+        TextEditingController(text: cleanThaiAddressPrefix(_profile.amphoe));
+    final changwatCtrl =
+        TextEditingController(text: cleanThaiAddressPrefix(_profile.changwat));
     final zipCtrl = TextEditingController(text: _profile.postalCode);
 
     final saved = await showModalBottomSheet<bool>(
@@ -197,125 +215,157 @@ class _ProfileTechnicianPageState extends State<ProfileTechnicianPage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-          ),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const Text(
-                    'แก้ไขที่อยู่',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: AppStyles.fontFamily,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textMain,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: TextField(
-                          controller: houseNoCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'บ้านเลขที่',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: mooCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'หมู่',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: tambonCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'ตำบล',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: amphoeCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'อำเภอ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: changwatCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'จังหวัด',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: zipCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'รหัสไปรษณีย์',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: () => Navigator.pop(sheetContext, true),
-                      child: const Text('บันทึก'),
-                    ),
-                  ),
-                ],
+        // 🐛 [แก้บัค] เดิมช่องตำบล/อำเภอ/จังหวัดเป็น TextField พิมพ์เปล่า ๆ
+        // เรียงตำบล->อำเภอ->จังหวัด (เล็กไปใหญ่) ไม่มีค้นหา/ไล่ระดับเลย —
+        // เปลี่ยนเป็นช่องค้นหาแบบเดียวกับหน้าลงทะเบียน/แจ้งซ่อม เรียงจังหวัด ->
+        // อำเภอ/เขต -> ตำบล/แขวง (ใหญ่ไปเล็ก) ต้องห่อด้วย StatefulBuilder เพื่อ
+        // รีเฟรช UI ตอนเคลียร์ช่องลูกเมื่อเปลี่ยนช่องพ่อ
+        return StatefulBuilder(
+          builder: (sheetContext, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
               ),
-            ),
-          ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const Text(
+                        'แก้ไขที่อยู่',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: AppStyles.fontFamily,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textMain,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: houseNoCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'บ้านเลขที่',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: mooCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'หมู่',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ThaiAddressAutocompleteField(
+                        key: ValueKey('changwat_${changwatCtrl.text}'),
+                        labelText: 'จังหวัด',
+                        controller: changwatCtrl,
+                        optionsBuilder: () =>
+                            _thaiProvinces.map((p) => p.name).toList(),
+                        onSelected: (value) {
+                          setModalState(() {
+                            changwatCtrl.text = value;
+                            amphoeCtrl.clear();
+                            tambonCtrl.clear();
+                            zipCtrl.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      ThaiAddressAutocompleteField(
+                        key: ValueKey(
+                            'amphoe_${changwatCtrl.text}_${amphoeCtrl.text}'),
+                        labelText: 'อำเภอ / เขต',
+                        controller: amphoeCtrl,
+                        enabled: changwatCtrl.text.trim().isNotEmpty,
+                        optionsBuilder: () => thaiAmphoeOptions(
+                            _thaiProvinces, changwatCtrl.text),
+                        onSelected: (value) {
+                          setModalState(() {
+                            amphoeCtrl.text = value;
+                            tambonCtrl.clear();
+                            zipCtrl.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      ThaiAddressAutocompleteField(
+                        key: ValueKey(
+                            'tambon_${changwatCtrl.text}_${amphoeCtrl.text}_${tambonCtrl.text}'),
+                        labelText: 'ตำบล / แขวง',
+                        controller: tambonCtrl,
+                        enabled: changwatCtrl.text.trim().isNotEmpty &&
+                            amphoeCtrl.text.trim().isNotEmpty,
+                        optionsBuilder: () => thaiTambonOptions(
+                            _thaiProvinces,
+                            changwatCtrl.text,
+                            amphoeCtrl.text),
+                        onSelected: (value) {
+                          setModalState(() {
+                            tambonCtrl.text = value;
+                            final zip = thaiZipFor(_thaiProvinces,
+                                changwatCtrl.text, amphoeCtrl.text, value);
+                            if (zip != null) zipCtrl.text = zip;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: zipCtrl,
+                        readOnly: true,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'รหัสไปรษณีย์ (กรอกอัตโนมัติ)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          onPressed: () => Navigator.pop(sheetContext, true),
+                          child: const Text('บันทึก'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );

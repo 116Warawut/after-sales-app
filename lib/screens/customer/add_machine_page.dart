@@ -8,6 +8,7 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/widgets.dart';
 import 'package:after_sales/screens/shared/qr_scanner_page.dart';
 import 'package:after_sales/utils/serial_number.dart';
+import 'package:after_sales/utils/thai_address.dart';
 
 /// ==========================================
 /// ➕ หน้าเพิ่มเครื่องจักรใหม่ (Machine List)
@@ -37,12 +38,27 @@ class _AddMachinePageState extends State<AddMachinePage> {
 
   bool _isSaving = false;
 
+  // 🆕 [ใหม่] รายชื่อจังหวัด/อำเภอ/ตำบล — ใช้กับช่องค้นหาแบบ Autocomplete ให้
+  // พิมพ์ค้นหาได้และไล่ระดับจังหวัด -> อำเภอ/เขต -> ตำบล/แขวง เหมือนหน้า
+  // ลงทะเบียน/แจ้งซ่อม (เดิมหน้านี้เป็นช่องพิมพ์เปล่า ๆ ไม่มีการค้นหา/ไล่ระดับ
+  // เลย ทำให้พิมพ์ชื่ออำเภอ/ตำบลผิดหรือไม่ตรงกับข้อมูลจริงได้ง่าย)
+  List<ThaiProvince> _thaiProvinces = [];
+
   // 📷 รูปภาพเครื่องจักร (เลือกจากแกลเลอรีหรือถ่ายรูปใหม่)
   final ImagePicker _picker = ImagePicker();
   String _photoPath = '';
   // ไฟล์รูปที่เพิ่งเลือกไว้ (ยังไม่อัปโหลด) — จะอัปโหลดขึ้น Cloudinary จริง ๆ
   // ตอนกด "บันทึก" เท่านั้น กันอัปโหลดทิ้งเปล่า ๆ ถ้าผู้ใช้เปลี่ยนใจเลือกรูปใหม่ก่อนบันทึก
   XFile? _pickedPhotoFile;
+
+  @override
+  void initState() {
+    super.initState();
+    loadThaiProvinces().then((provinces) {
+      if (!mounted) return;
+      setState(() => _thaiProvinces = provinces);
+    });
+  }
 
   @override
   void dispose() {
@@ -423,36 +439,69 @@ class _AddMachinePageState extends State<AddMachinePage> {
                         ),
                         const SizedBox(height: 16),
 
-                        TextFormField(
-                          controller: _tambonController,
-                          style: const TextStyle(
-                              fontFamily: AppStyles.fontFamily),
-                          decoration: const InputDecoration(
-                            labelText: 'ตำบล',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        TextFormField(
-                          controller: _amphoeController,
-                          style: const TextStyle(
-                              fontFamily: AppStyles.fontFamily),
-                          decoration: const InputDecoration(
-                            labelText: 'อำเภอ',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        TextFormField(
+                        // 🐛 [แก้บัค] เดิมเป็นช่องพิมพ์เปล่า ๆ เรียงตำบล->อำเภอ->
+                        // จังหวัด (เล็กไปใหญ่ และพิมพ์เองไม่มีเช็คถูกต้อง) —
+                        // เปลี่ยนเป็นช่องค้นหาแบบเดียวกับหน้าลงทะเบียน/แจ้งซ่อม
+                        // เรียงจังหวัด -> อำเภอ/เขต -> ตำบล/แขวง (ใหญ่ไปเล็ก)
+                        // พิมพ์ค้นหาได้ และไล่ระดับตามจังหวัด/อำเภอที่เลือกไว้
+                        // ก่อนหน้า พร้อมเติมรหัสไปรษณีย์ให้อัตโนมัติ
+                        ThaiAddressAutocompleteField(
+                          key: ValueKey('changwat_${_changwatController.text}'),
+                          labelText: 'จังหวัด',
                           controller: _changwatController,
-                          style: const TextStyle(
-                              fontFamily: AppStyles.fontFamily),
-                          decoration: const InputDecoration(
-                            labelText: 'จังหวัด',
-                            border: OutlineInputBorder(),
-                          ),
+                          optionsBuilder: () =>
+                              _thaiProvinces.map((p) => p.name).toList(),
+                          onSelected: (value) {
+                            setState(() {
+                              _changwatController.text = value;
+                              _amphoeController.clear();
+                              _tambonController.clear();
+                              _zipCodeController.clear();
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        ThaiAddressAutocompleteField(
+                          key: ValueKey(
+                              'amphoe_${_changwatController.text}_${_amphoeController.text}'),
+                          labelText: 'อำเภอ / เขต',
+                          controller: _amphoeController,
+                          enabled: _changwatController.text.trim().isNotEmpty,
+                          optionsBuilder: () => thaiAmphoeOptions(
+                              _thaiProvinces, _changwatController.text),
+                          onSelected: (value) {
+                            setState(() {
+                              _amphoeController.text = value;
+                              _tambonController.clear();
+                              _zipCodeController.clear();
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        ThaiAddressAutocompleteField(
+                          key: ValueKey(
+                              'tambon_${_changwatController.text}_${_amphoeController.text}_${_tambonController.text}'),
+                          labelText: 'ตำบล / แขวง',
+                          controller: _tambonController,
+                          enabled: _changwatController.text.trim().isNotEmpty &&
+                              _amphoeController.text.trim().isNotEmpty,
+                          optionsBuilder: () => thaiTambonOptions(
+                              _thaiProvinces,
+                              _changwatController.text,
+                              _amphoeController.text),
+                          onSelected: (value) {
+                            setState(() {
+                              _tambonController.text = value;
+                              final zip = thaiZipFor(
+                                  _thaiProvinces,
+                                  _changwatController.text,
+                                  _amphoeController.text,
+                                  value);
+                              if (zip != null) _zipCodeController.text = zip;
+                            });
+                          },
                         ),
                         const SizedBox(height: 16),
 
@@ -462,7 +511,7 @@ class _AddMachinePageState extends State<AddMachinePage> {
                           style: const TextStyle(
                               fontFamily: AppStyles.fontFamily),
                           decoration: const InputDecoration(
-                            labelText: 'รหัสไปรษณีย์',
+                            labelText: 'รหัสไปรษณีย์ (กรอกอัตโนมัติ)',
                             border: OutlineInputBorder(),
                           ),
                         ),

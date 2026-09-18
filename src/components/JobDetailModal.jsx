@@ -13,8 +13,6 @@ import {
   Loader2,
   CalendarClock,
   Check,
-  PackageCheck,
-  DollarSign,
 } from "lucide-react";
 import {
   GEOAPIFY_API_KEY,
@@ -37,22 +35,6 @@ import {
   createNotification,
 } from "../services/firebaseDb";
 import { getSessionAdmin } from "../services/session";
-
-function matchesRepairId(partRepairId, job) {
-  if (partRepairId == null || !job) return false;
-  const pId = String(partRepairId).trim();
-  const pClean = pId.replace(/^[kK]/, "");
-  const jId = String(job.id ?? "").trim();
-  const jIdClean = jId.replace(/^[kK]/, "");
-  const jRecId = String(job.record_id ?? "").trim();
-  const jRecIdClean = jRecId.replace(/^[kK]/, "");
-
-  return (
-    pId === jId ||
-    pId === jRecId ||
-    (pClean && (pClean === jIdClean || pClean === jRecIdClean))
-  );
-}
 
 export function findMachineForJob(job, machines = []) {
   if (!job || !Array.isArray(machines) || machines.length === 0) return null;
@@ -480,7 +462,11 @@ function TechnicianAssignBox({ job, technicians, currentTech }) {
       const cleanTime = editTime.trim();
       const comp = compareAppointmentDate(thaiDate);
       let newStatus = job.status;
-
+      // 🐛 [แก้บัค] เดิมเช็คแค่ "ยังไม่เสร็จ/ยกเลิก/มีปัญหา" แล้วเขียนทับสถานะ
+      // เป็น "รอดำเนินการ"/"เกินกำหนดเวลา" ตามวันที่ใหม่เสมอ — ถ้างานนั้นกำลัง
+      // ทำอยู่จริง (กำลังเดินทาง/กำลังซ่อม) แล้วแอดมินมาเลื่อนนัดหมาย จะโดนเขียน
+      // ทับสถานะจริงทิ้งไปเฉยๆ ทั้งที่ช่างลงมือทำไปแล้ว — กันไว้เหมือนกับที่แก้
+      // getEffectiveRepairStatus() ใน constants.js
       const alreadyInProgress =
         job.status === "กำลังเดินทาง" ||
         job.status === "กำลังดำเนินการ" ||
@@ -736,7 +722,6 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
   const { data: customers = [] } = useDbList("customers");
   const { data: repairs = [] } = useDbList("repairs");
   const { data: dbMachines = [] } = useDbList("machines");
-  const { data: partRequests = [] } = useDbList("part_requests");
 
   if (!jobProp) return null;
 
@@ -774,21 +759,6 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
   const hasReport = !!(report.text || report.beforePhoto || report.afterPhoto || report.slipPhoto);
   const issue = getIssueReport(job);
   const hasIssue = effStatus === "มีปัญหา" || !!(issue.detail || issue.photos.length);
-
-  // คำนวณสถานะอะไหล่และการออกบิล
-  const jobParts = useMemo(() => {
-    return partRequests.filter((pr) => matchesRepairId(pr.repair_id, job));
-  }, [partRequests, job]);
-
-  const approvedPartsCount = jobParts.filter((p) => p.status === "อนุมัติแล้ว").length;
-  const pendingPartsCount = jobParts.filter((p) => p.status === "รอดำเนินการ").length;
-  const hasEstimatedPrice = Number(job.estimated_price) > 0;
-  const isInvoiceReady =
-    !job.invoice_no &&
-    !(Number(job.total_price) > 0) &&
-    hasEstimatedPrice &&
-    jobParts.length > 0 &&
-    jobParts.every((p) => p.status === "อนุมัติแล้ว");
 
   const techLoc = currentTech?.current_lat && currentTech?.current_lng
     ? { lat: Number(currentTech.current_lat), lng: Number(currentTech.current_lng) }
@@ -848,7 +818,6 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
         </div>
 
         <div className="p-6 space-y-6 max-h-[calc(85vh-120px)] overflow-y-auto">
-          {/* ข้อมูลอุปกรณ์ ปัญหา และสถานะราคาประเมิน/อะไหล่ */}
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">ข้อมูลอุปกรณ์และปัญหา</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -864,35 +833,7 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
                 <span className="text-slate-400 text-xs block">รายละเอียดปัญหา:</span>
                 <span className="text-slate-700 whitespace-pre-wrap">{job.detail || "-"}</span>
               </div>
-
-              {/* ข้อมูลการเงิน/อะไหล่สำหรับออกบิล */}
-              <div>
-                <span className="text-slate-400 text-xs block">ราคาประเมินจากช่าง:</span>
-                <span className="font-semibold text-slate-800">
-                  {hasEstimatedPrice ? `฿${Number(job.estimated_price).toLocaleString("th-TH")} บาท` : "ช่างยังไม่ระบุราคาประเมิน"}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 text-xs block">สถานะคำขอเบิกอะไหล่:</span>
-                <span className="font-medium text-slate-800">
-                  {jobParts.length === 0
-                    ? "ไม่มีการเบิกอะไหล่"
-                    : `เบิก ${jobParts.length} รายการ (อนุมัติแล้ว ${approvedPartsCount}${pendingPartsCount > 0 ? `, รออนุมัติ ${pendingPartsCount}` : ""})`}
-                </span>
-              </div>
-
-              {job.invoice_no && (
-                <div className="sm:col-span-2 pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
-                  <span className="text-slate-500">
-                    ออกใบแจ้งหนี้แล้ว: <strong className="text-slate-800">{job.invoice_no}</strong>
-                  </span>
-                  <span className="font-bold text-[#B22121]">
-                    ยอดสุทธิ ฿{Number(job.total_price || 0).toLocaleString("th-TH")} บาท {job.is_paid ? "(ชำระแล้ว)" : "(รอชำระ)"}
-                  </span>
-                </div>
-              )}
             </div>
-
             {problemPhotos.length > 0 ? (
               <div>
                 <span className="text-slate-400 text-xs block mb-1.5">
@@ -1027,18 +968,6 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
         </div>
 
         <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-          {onNavigate && isInvoiceReady && (
-            <button
-              onClick={() => {
-                onClose();
-                onNavigate("finance");
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs"
-            >
-              <DollarSign size={16} />
-              พร้อมออกบิล (ไปหน้าการเงิน)
-            </button>
-          )}
           {onNavigate && (
             <button
               onClick={() => {

@@ -554,11 +554,11 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
           focusNode: focusNode,
           enabled: enabled,
           style: const TextStyle(fontFamily: AppStyles.fontFamily),
-          decoration: InputDecoration(
-            labelText: labelText,
+          // 🎨 [แก้สไตล์] ใช้ AppStyles.inputDecoration แบบเดียวกับหน้าลงทะเบียน
+          // (register.dart) แทน InputDecoration + OutlineInputBorder + labelText
+          // เดิม ให้ช่องจังหวัด/อำเภอ/ตำบลในหน้านี้มีรูปแบบตรงกับหน้าลงทะเบียน
+          decoration: AppStyles.inputDecoration(
             hintText: enabled ? hintText : '$hintText (เลือกข้อมูลก่อนหน้าก่อน)',
-            prefixIcon: const Icon(Icons.location_on, color: AppColors.primary),
-            border: const OutlineInputBorder(),
             suffixIcon: fieldController.text.isNotEmpty && enabled
                 ? IconButton(
                     icon: const Icon(Icons.clear, size: 18, color: AppColors.textHint),

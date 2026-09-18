@@ -7,6 +7,7 @@ import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/widgets.dart';
 import 'package:after_sales/screens/admin/customer_edit_page.dart';
 import 'package:after_sales/screens/admin/customer_models.dart';
+import 'package:after_sales/utils/thai_address.dart';
 
 // ==========================================
 // SECTION 2: DATA MODEL
@@ -397,6 +398,8 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
   late final TextEditingController _zipController;
 
   bool _isSaving = false;
+  // 🆕 [ใหม่] รายชื่อจังหวัด/อำเภอ/ตำบล — ใช้กับช่องค้นหาแบบ Autocomplete
+  List<ThaiProvince> _thaiProvinces = [];
 
   bool get _isEditing => widget.existing != null;
 
@@ -413,11 +416,17 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
     _emailController = TextEditingController(text: existing?.email ?? '');
     _houseNoController = TextEditingController(text: existing?.houseNo ?? '');
     _mooController = TextEditingController(text: existing?.moo ?? '');
-    _tambonController = TextEditingController(text: existing?.tambon ?? '');
-    _amphoeController = TextEditingController(text: existing?.amphoe ?? '');
-    _changwatController =
-        TextEditingController(text: existing?.changwat ?? '');
+    _tambonController = TextEditingController(
+        text: cleanThaiAddressPrefix(existing?.tambon));
+    _amphoeController = TextEditingController(
+        text: cleanThaiAddressPrefix(existing?.amphoe));
+    _changwatController = TextEditingController(
+        text: cleanThaiAddressPrefix(existing?.changwat));
     _zipController = TextEditingController(text: existing?.postalCode ?? '');
+    loadThaiProvinces().then((provinces) {
+      if (!mounted) return;
+      setState(() => _thaiProvinces = provinces);
+    });
   }
 
   @override
@@ -588,28 +597,69 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _tambonController,
-                decoration: const InputDecoration(labelText: 'ตำบล'),
+              ThaiAddressAutocompleteField(
+                key: ValueKey('changwat_${_changwatController.text}'),
+                labelText: 'จังหวัด',
+                controller: _changwatController,
+                optionsBuilder: () =>
+                    _thaiProvinces.map((p) => p.name).toList(),
+                onSelected: (value) {
+                  setState(() {
+                    _changwatController.text = value;
+                    _amphoeController.clear();
+                    _tambonController.clear();
+                    _zipController.clear();
+                  });
+                },
               ),
               const SizedBox(height: 12),
-              TextFormField(
+              ThaiAddressAutocompleteField(
+                key: ValueKey(
+                    'amphoe_${_changwatController.text}_${_amphoeController.text}'),
+                labelText: 'อำเภอ / เขต',
                 controller: _amphoeController,
-                decoration: const InputDecoration(labelText: 'อำเภอ'),
+                enabled: _changwatController.text.trim().isNotEmpty,
+                optionsBuilder: () =>
+                    thaiAmphoeOptions(_thaiProvinces, _changwatController.text),
+                onSelected: (value) {
+                  setState(() {
+                    _amphoeController.text = value;
+                    _tambonController.clear();
+                    _zipController.clear();
+                  });
+                },
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: TextFormField(
-                      controller: _changwatController,
-                      decoration: const InputDecoration(labelText: 'จังหวัด'),
+                    child: ThaiAddressAutocompleteField(
+                      key: ValueKey(
+                          'tambon_${_changwatController.text}_${_amphoeController.text}_${_tambonController.text}'),
+                      labelText: 'ตำบล / แขวง',
+                      controller: _tambonController,
+                      enabled: _changwatController.text.trim().isNotEmpty &&
+                          _amphoeController.text.trim().isNotEmpty,
+                      optionsBuilder: () => thaiTambonOptions(_thaiProvinces,
+                          _changwatController.text, _amphoeController.text),
+                      onSelected: (value) {
+                        setState(() {
+                          _tambonController.text = value;
+                          final zip = thaiZipFor(
+                              _thaiProvinces,
+                              _changwatController.text,
+                              _amphoeController.text,
+                              value);
+                          if (zip != null) _zipController.text = zip;
+                        });
+                      },
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: TextFormField(
                       controller: _zipController,
+                      readOnly: true,
                       keyboardType: TextInputType.number,
                       decoration:
                           const InputDecoration(labelText: 'รหัสไปรษณีย์'),

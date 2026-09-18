@@ -88,6 +88,14 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
   List<PartItem> _allParts = [];
   String _query = '';
 
+  // 🐛 [แก้บัค] เดิมไม่มีตัวกันกดซ้ำตอนกดยืนยันเบิกของ — ปุ่ม "ยืนยันเบิก" ที่
+  // แถบล่างค้างจอ กับปุ่ม "ยืนยันการเบิกอะไหล่ทั้งหมด" ในชีตตะกร้า เรียก
+  // _submitCart() ตรง ๆ ทั้งคู่ ถ้ากดรัว/กดสองปุ่มไล่กันก่อนที่ฟังก์ชันจะเคลียร์
+  // ตะกร้า (_cart.clear() ทำหลัง insert เสร็จหมดแล้วเท่านั้น) จะวน insert
+  // รายการเดิมซ้ำ 2 รอบ กลายเป็นคำขอเบิกซ้ำ (เช่นเบิกของ 4 ชิ้น กลายเป็น 8
+  // รายการ) — เพิ่มธงกันกดซ้ำ ปิดปุ่มไว้ระหว่างที่กำลังส่งคำขออยู่
+  bool _isSubmittingCart = false;
+
   // 🛒 ตะกร้าเบิกอะไหล่ — key เป็น part.cartKey (Firebase key จริง) กันเผลอเพิ่ม
   // ชิ้นเดียวกันซ้ำเป็นแถวใหม่ และกันชิ้นที่ id ในฐานข้อมูลชนกันแล้วไปทับกันเอง
   final Map<String, _CartLine> _cart = {};
@@ -626,11 +634,14 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
   // ✅ ยืนยันคำขอเบิกทั้งหมดในตะกร้า — บันทึกลง DB ทีละรายการ + แจ้งเตือนแอดมิน
   // ---------------------------------------------------------------------
   Future<void> _submitCart() async {
-    if (_cart.isEmpty) return;
+    // 🐛 [แก้บัค] กันกดซ้ำ — ถ้ากำลังส่งคำขออยู่แล้ว (จากอีกปุ่มหนึ่ง หรือกดรัว)
+    // ไม่ต้องทำซ้ำ ป้องกันคำขอเบิกซ้ำซ้อนของเดิมทุกชิ้นในตะกร้า
+    if (_cart.isEmpty || _isSubmittingCart) return;
 
     final lines = _cart.values.toList();
     final technician = db.Session.currentUsername;
 
+    setState(() => _isSubmittingCart = true);
     try {
       for (final line in lines) {
         await db.DatabaseHelper.instance.createPartRequest(
@@ -674,6 +685,9 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
     } catch (e) {
       debugPrint('Error submitting part requests: $e');
       _snack('ส่งคำขอเบิกอะไหล่ไม่สำเร็จ: $e');
+    } finally {
+      // 🐛 [แก้บัค] ปลดธงกันกดซ้ำเสมอไม่ว่าจะสำเร็จหรือ error กันปุ่มค้างกดไม่ได้
+      if (mounted) setState(() => _isSubmittingCart = false);
     }
   }
 
@@ -829,14 +843,25 @@ class _RequestPartScreenState extends State<RequestPartScreen> {
                     const SizedBox(width: 4),
                     ElevatedButton(
                       style: AppStyles.primaryButton,
-                      onPressed: _submitCart,
-                      child: const Text(
-                        'ยืนยันเบิก',
-                        style: TextStyle(
-                          fontFamily: AppStyles.fontFamily,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                      // 🐛 [แก้บัค] ปิดปุ่มระหว่างกำลังส่งคำขออยู่ กันกดซ้ำ/กดรัว
+                      // ตอนรอ Firebase บันทึกเสร็จ (ดูธง _isSubmittingCart)
+                      onPressed: _isSubmittingCart ? null : _submitCart,
+                      child: _isSubmittingCart
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'ยืนยันเบิก',
+                              style: TextStyle(
+                                fontFamily: AppStyles.fontFamily,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                     ),
                   ],
                 ),

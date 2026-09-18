@@ -120,13 +120,21 @@ class UserProfile {
     );
   }
 
+  // 🐛 [แก้บัค] เดิมใช้ 'ตำบล'/'อำเภอ' นำหน้าตายตัวทุกจังหวัด แต่กรุงเทพมหานคร
+  // ใช้ "แขวง"/"เขต" (บั๊กเดียวกับที่แก้ใน repair_form.dart/register.dart) —
+  // ตัดคำนำหน้าที่อาจติดมากับข้อมูลเก่าออกก่อนด้วย _cleanAddressPrefix() แล้ว
+  // ค่อยเลือกคำนำหน้าที่ถูกต้องเองตามจังหวัด
   String get formattedAddress {
+    final cleanTambon = _cleanAddressPrefix(tambon);
+    final cleanAmphoe = _cleanAddressPrefix(amphoe);
+    final cleanChangwat = _cleanAddressPrefix(changwat);
+    final isBangkok = cleanChangwat == 'กรุงเทพมหานคร';
     final parts = <String>[
       if (houseNo.isNotEmpty) houseNo,
       if (moo.isNotEmpty) 'หมู่ $moo',
-      if (tambon.isNotEmpty) 'ตำบล$tambon',
-      if (amphoe.isNotEmpty) 'อำเภอ$amphoe',
-      if (changwat.isNotEmpty) 'จังหวัด$changwat',
+      if (cleanTambon.isNotEmpty) '${isBangkok ? 'แขวง' : 'ตำบล'}$cleanTambon',
+      if (cleanAmphoe.isNotEmpty) '${isBangkok ? 'เขต' : 'อำเภอ'}$cleanAmphoe',
+      if (cleanChangwat.isNotEmpty) 'จังหวัด$cleanChangwat',
       if (postalCode.isNotEmpty) postalCode,
     ];
     return parts.isEmpty ? '-' : parts.join(' ');
@@ -386,10 +394,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
                     focusNode: focusNode,
                     enabled: enabled,
                     style: const TextStyle(fontFamily: AppStyles.fontFamily),
-                    decoration: InputDecoration(
-                      labelText: hintText,
+                    // 🎨 [แก้สไตล์] ใช้ AppStyles.inputDecoration แบบเดียวกับหน้า
+                    // ลงทะเบียน (register.dart) แทน InputDecoration + labelText
+                    // ลอย + OutlineInputBorder เดิม ให้ช่องจังหวัด/อำเภอ/ตำบล
+                    // ในหน้านี้มีรูปแบบตรงกับหน้าลงทะเบียน
+                    decoration: AppStyles.inputDecoration(
                       hintText: enabled ? hintText : '$hintText (เลือกข้อมูลก่อนหน้าก่อน)',
-                      border: const OutlineInputBorder(),
                       suffixIcon: fieldController.text.isNotEmpty && enabled
                           ? IconButton(
                               icon: const Icon(Icons.clear, size: 18, color: AppColors.textHint),

@@ -8,51 +8,30 @@ import { updateRow, logActivity, nextInvoiceNumber, getWebSettings } from "../se
 import { getSessionAdmin } from "../services/session";
 
 // ---------------------------------------------------------------------------
-// 🔍 ฟังก์ชันเปรียบเทียบ ID งานซ่อมกับ repair_id ในคำขออะไหล่ให้ตรงกันทุกรูปแบบ
+// 🎨 ภาพรวมสไตล์หน้านี้: การ์ดสรุป 3 ใบ (สไตล์เดียวกับการ์ดสถิติหน้าอื่น ๆ ใน
+// เว็บนี้) + ตารางใบแจ้งหนี้ — badge "ชำระแล้ว" สีเขียว / "ยังไม่ชำระ" สีส้ม
+// 🔴 [แก้ไข] เพิ่มปุ่ม "ออกใบแจ้งหนี้ใหม่" + หน้าออกบิลจริง (เลือกงานที่ยังไม่
+// ออกบิล ดึงอะไหล่ที่อนุมัติแล้วของงานนั้นมาคำนวณยอดอะไหล่อัตโนมัติ + กรอกค่าแรง
+// เอง แล้วบันทึกยอดรวมกลับไปที่ repairs.total_price) — ก่อนหน้านี้หน้านี้ทำได้
+// แค่ดู/มาร์กว่าชำระแล้ว ยังออกบิลใหม่จากเว็บไม่ได้เลย
 // ---------------------------------------------------------------------------
-function matchesRepairId(partRepairId, job) {
-  if (partRepairId == null || !job) return false;
-  const pId = String(partRepairId).trim();
-  const pClean = pId.replace(/^[kK]/, "");
-  const jId = String(job.id ?? "").trim();
-  const jIdClean = jId.replace(/^[kK]/, "");
-  const jRecId = String(job.record_id ?? "").trim();
-  const jRecIdClean = jRecId.replace(/^[kK]/, "");
 
-  return (
-    pId === jId ||
-    pId === jRecId ||
-    (pClean && (pClean === jIdClean || pClean === jRecIdClean))
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 🎯 [แก้ไข] เงื่อนไขการออกบิลใหม่ตามวัตถุประสงค์:
-// 1. ยังไม่เคยออกบิล (ไม่มี invoice_no และ total_price ยังไม่ถูกตั้ง)
-// 2. งานไม่ได้ถูกยกเลิก
-// 3. ช่างกรอกราคาประเมินแล้ว (estimated_price > 0)
-// 4. มีการขอเบิกอะไหล่สำหรับงานนี้ และทุกรายการแอดมินอนุมัติแล้วเท่านั้น
-// ---------------------------------------------------------------------------
-function isInvoiceable(r, partRequests = []) {
-  if (!r) return false;
-
+// ออกบิลได้เฉพาะงานที่ "เสร็จสิ้น" แล้วและยังไม่เคยตั้งยอดไว้ (total_price = 0)
+// เท่านั้น — ป้องกันออกบิลงานที่ยังไม่เสร็จหรือออกบิลซ้ำงานเดิม
+function isInvoiceable(r) {
   const status = r.status || "";
-  if (status.includes("ยกเลิก")) return false;
-
-  const alreadyInvoiced = Number(r.total_price) > 0 || Boolean(r.invoice_no);
-  if (alreadyInvoiced) return false;
-
-  const estimatedPrice = Number(r.estimated_price) || 0;
-  if (estimatedPrice <= 0) return false;
-
-  const jobParts = (partRequests || []).filter((pr) => matchesRepairId(pr.repair_id, r));
-  if (jobParts.length === 0) return false;
-
-  const allApproved = jobParts.every((pr) => pr.status === "อนุมัติแล้ว");
-  return allApproved;
+  return (status === "เสร็จสิ้น" || status === "เสร็จแล้ว") && !(Number(r.total_price) > 0);
 }
 
+// 🔴 [แก้บั๊ก] เดิมเว็บมีสถานะการชำระแค่ 2 แบบ (ชำระแล้ว/ยังไม่ชำระ จาก is_paid
+// อย่างเดียว) ทั้งที่ลูกค้าฝั่งแอปมือถืออัปโหลดสลิปโอนเงินไว้ที่ฟิลด์
+// customer_payment_slip บน repairs/{id} (เช็กกับ services.dart/payment.dart จริง
+// แล้ว) แต่เว็บไม่เคยอ่านฟิลด์นี้เลยแม้แต่นิดเดียว แอดมินเลยมองไม่เห็นหลักฐาน
+// การโอนเงินบนเว็บ ต้องไปเปิดแอปมือถือดูแทน — เพิ่มสถานะกลาง "รอตรวจสอบสลิป"
+// (มีสลิปแล้วแต่แอดมินยังไม่กดยืนยัน) คั่นระหว่าง "ยังไม่ชำระ" กับ "ชำระแล้ว"
 function getPaymentState(r) {
+  // 🆕 [ใหม่] ให้ตรงกับฝั่งแอป — บิลที่อยู่ในประกันถูกมาร์ก is_paid ให้อัตโนมัติ
+  // (ไม่มีการชำระเงินจริง) ต้องแยกออกจาก "ชำระแล้ว" จริงๆ กันแอดมินสับสน/นับรายได้ผิด
   const isWarranty = r.is_warranty_covered === true || r.is_warranty_covered === 1;
   if (isWarranty) return "warranty";
   const isPaid = r.is_paid === 1 || r.is_paid === true;
@@ -61,6 +40,10 @@ function getPaymentState(r) {
   return "unpaid";
 }
 
+// 🆕 [ใหม่] พอร์ตลอจิกเช็คประกันจาก Machine.warrantyActive/warrantyStatusText
+// ในแอป (screens/customer/machine_models.dart) มาใช้ฝั่งเว็บ เพื่อให้หน้าออกบิล
+// เว็บตรวจจับประกันของเครื่องจักรได้แบบเดียวกับหน้าออกบิลในแอป
+// (admin_create_invoice.dart)
 function getMachineWarrantyInfo(machine) {
   if (!machine?.warranty_start_date || !machine?.warranty_months) {
     return { active: false, statusText: null };
@@ -86,16 +69,28 @@ function getMachineWarrantyInfo(machine) {
   };
 }
 
+// 🔴 [แก้ไข] เดิม CreateInvoiceModal คำนวณยอดอะไหล่อัตโนมัติจากคำขอเบิกที่อนุมัติ
+// แล้วเท่านั้น (join ราคาด้วย record_id ซึ่งเป็นฟิลด์ id ภายในของอะไหล่ — ข้อมูล
+// อะไหล่บางส่วนมีฟิลด์นี้เป็น 0 ซ้ำกันหลายชิ้น เพราะย้ายมาจาก SQLite แล้วไม่ได้ตั้ง
+// id ให้ครบ ทำให้จับคู่ราคาผิดชิ้นหรือหาไม่เจอ ราคาอะไหล่เลยไม่ขึ้น) และไม่มีทาง
+// เพิ่มรายการเองได้เลย ต่างจากหน้าออกบิลฝั่งแอป (admin_create_invoice.dart) ที่ให้
+// แอดมินเพิ่ม/แก้ไข/ลบรายการได้อิสระ ทำให้สองฝั่งออกบิลคนละแบบ ไม่ sync กัน —
+// เปลี่ยนมาใช้กลไกเดียวกับแอป: รายการในบิลแก้ไขได้อิสระ, เสนอคำขอเบิกที่อนุมัติ
+// แล้วให้กดเพิ่มเข้าบิลทีละรายการ (จับคู่ราคาด้วย .id ซึ่งเป็น Firebase key จริง
+// ของแถวอะไหล่ — ตรงกับที่ getSparePartById() ฝั่งแอปดึงตรงจาก path ของ key จริง
+// เช่นกัน ไม่มีทางซ้ำ), auto-prefill ค่าแรงจาก estimated_price, และเช็คประกัน
+// เครื่องจักรอัตโนมัติเหมือนกันทุกอย่าง
 function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClose }) {
-  // กรองเฉพาะงานที่ช่างกรอกราคาประเมินและอนุมัติอะไหล่ครบแล้ว
-  const invoiceableJobs = useMemo(() => {
-    return (repairs || []).filter((r) => isInvoiceable(r, partRequests));
-  }, [repairs, partRequests]);
-
+  const invoiceableJobs = repairs.filter(isInvoiceable);
   const [repairId, setRepairId] = useState("");
   const [items, setItems] = useState([]);
   const [isWarrantyCovered, setIsWarrantyCovered] = useState(false);
   const [warrantyStatusText, setWarrantyStatusText] = useState(null);
+  // 🆕 [ใหม่] ภาษี — พอร์ตสูตรคำนวณเดียวกับหน้าออกบิลฝั่งแอปทุกจุด (ดู
+  // _subtotal/_discountAmount/_vatAmount/_withholdingTaxAmount/_grandTotal ใน
+  // admin_create_invoice.dart): ส่วนลดเป็นจำนวนเงินบาท (ไม่ใช่ %) หักก่อนคิด
+  // VAT/WHT, VAT คงที่ 7% เปิด/ปิดได้, หัก ณ ที่จ่ายเลือกอัตราได้ (1/2/3/5%)
+  // คำนวณจากยอดหลังหักส่วนลด (ก่อน VAT)
   const [discount, setDiscount] = useState("");
   const [includeVat, setIncludeVat] = useState(true);
   const [enableWht, setEnableWht] = useState(false);
@@ -110,20 +105,33 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
     return map;
   }, [machines]);
 
-  function priceForPartId(partId) {
-    const part = (spareParts || []).find((p) => String(p.id) === String(partId));
-    return Number(part?.price) || 0;
-  }
-
-  // คำขอเบิกอะไหล่ที่อนุมัติแล้วของงานนี้
+  // คำขอเบิกอะไหล่ที่อนุมัติแล้วของงานนี้ (ยังไม่ถูกออกบิล) — เสนอให้กดเพิ่ม
+  // เข้าบิลได้ทันที เหมือนหน้าออกบิลฝั่งแอป
+  // 🐛 [แก้บั๊ก] เดิมจับคู่ด้วย record_id (ฟิลด์ id ภายในของงานซ่อม ซึ่งข้อมูลเก่า
+  // บางส่วนมีค่าเป็น 0 ซ้ำกันหลายงาน หรือไม่มีค่าเลยสำหรับงานที่สร้างใหม่บน
+  // Firebase) เท่านั้น ทั้งที่ repair_id ที่ฝั่งแอปมือถือบันทึกไว้ใน part_requests
+  // (ดู spare_part_tec_viewer.dart) เป็นคีย์จริงใน Firebase (widget.repairId ตรง
+  // กับ selectedJob.id) — ผลคือรายการอะไหล่ที่ช่างเบิกและแอดมินอนุมัติแล้วแทบไม่
+  // เคยโผล่มาให้กดเพิ่มเข้าบิลเลย เหมือนบั๊กเดียวกับที่แก้ไปแล้วใน
+  // SparePartsPage.jsx/DashboardPage.jsx/ReportsPage.jsx — เปลี่ยนมาเทียบทั้งสอง
+  // แบบ (record_id ก่อน แล้วค่อยลองด้วย id) ให้ครอบคลุมทั้งงานเก่าและงานใหม่
   const availablePartRequests = useMemo(() => {
     if (!selectedJob) return [];
-    return (partRequests || []).filter(
-      (pr) => matchesRepairId(pr.repair_id, selectedJob) && pr.status === "อนุมัติแล้ว"
+    return partRequests.filter(
+      (pr) =>
+        (String(pr.repair_id) === String(selectedJob.record_id) ||
+          String(pr.repair_id) === String(selectedJob.id)) &&
+        pr.status === "อนุมัติแล้ว"
     );
   }, [selectedJob, partRequests]);
 
-  // เมื่อเลือกงานซ่อม ให้ prefill ค่าแรงประเมิน และดึงอะไหล่ที่อนุมัติแล้วเข้าบิลให้อัตโนมัติทันที
+  function priceForPartId(partId) {
+    const part = spareParts.find((p) => String(p.id) === String(partId));
+    return Number(part?.price) || 0;
+  }
+
+  // เปลี่ยนงานที่เลือก → รีเซ็ตรายการ แล้ว prefill ค่าแรงประเมิน (ถ้ามี) + เช็ค
+  // ประกันเครื่องจักรอัตโนมัติ ให้เหมือนพฤติกรรมตอนเปิดหน้าออกบิลฝั่งแอป
   useEffect(() => {
     if (!selectedJob) {
       setItems([]);
@@ -131,28 +139,14 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
       setWarrantyStatusText(null);
       return;
     }
-
     const initial = [];
     const estimatedPrice = Number(selectedJob.estimated_price) || 0;
     if (estimatedPrice > 0) {
       initial.push({ key: "estimated_labor", name: "ค่าแรง (ราคาประเมินจากช่าง)", qty: 1, price: estimatedPrice });
     }
-
-    // นำรายการอะไหล่ที่อนุมัติแล้วใส่ลงในตารางบิลให้อัตโนมัติ
-    const jobApprovedParts = (partRequests || []).filter(
-      (pr) => matchesRepairId(pr.repair_id, selectedJob) && pr.status === "อนุมัติแล้ว"
-    );
-    jobApprovedParts.forEach((pr) => {
-      initial.push({
-        key: `part_req_${pr.id}`,
-        name: pr.part_name || "อะไหล่",
-        qty: Number(pr.quantity) || 1,
-        price: priceForPartId(pr.part_id),
-        sourceRequestId: pr.id,
-      });
-    });
-
     setItems(initial);
+    // รีเซ็ตส่วนลด/ภาษีกลับเป็นค่าเริ่มต้นทุกครั้งที่เปลี่ยนงาน (เหมือนเปิดหน้า
+    // ออกบิลใหม่ทุกครั้งฝั่งแอป)
     setDiscount("");
     setIncludeVat(true);
     setEnableWht(false);
@@ -211,7 +205,9 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
           price: Number(it.price) || 0,
           subtotal: (Number(it.qty) || 0) * (Number(it.price) || 0),
         }));
-
+      // 🆕 [ใหม่] คำนวณจาก cleanItems (ตัดแถวที่ไม่ได้ตั้งชื่อทิ้งแล้ว) ให้ตรงกับ
+      // ยอดที่บันทึกจริง แทนที่จะใช้ subtotal/grandTotal ที่คำนวณจาก items ดิบ
+      // ด้านบน (ซึ่งอาจมีแถวว่างชื่อปนอยู่)
       const cleanSubtotal = cleanItems.reduce((sum, it) => sum + it.subtotal, 0);
       const cleanDiscount = Math.min(Number(discount) || 0, cleanSubtotal);
       const cleanAfterDiscount = cleanSubtotal - cleanDiscount;
@@ -219,6 +215,12 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
       const cleanWht = enableWht ? cleanAfterDiscount * (whtRate / 100) : 0;
       const total = cleanAfterDiscount + cleanVat - cleanWht;
 
+      // 🆕 [ใหม่] ให้ตรงกับ updateRepairBill() ฝั่งแอป — บิลที่อยู่ในประกันมาร์ก
+      // ว่าชำระแล้วทันที (ไม่มีค่าใช้จ่ายจริง ไม่ต้องรอลูกค้าจ่าย) และแยกด้วย
+      // is_warranty_covered กันไม่ให้ปนกับรายได้จริงตอนสรุปยอด (ดู totalRevenue
+      // ด้านล่าง) — ส่วนฟิลด์ invoice_subtotal/discount/vat/wht เก็บไว้เพิ่มเติม
+      // (แอปไม่ได้เก็บ breakdown พวกนี้ เก็บแค่ total_price) เพื่อให้ใบแจ้งหนี้ที่
+      // พิมพ์จากเว็บ (InvoiceModal) โชว์รายละเอียดส่วนลด/ภาษีได้ครบ
       const updates = {
         total_price: total,
         invoiced_at: new Date().toISOString(),
@@ -236,7 +238,8 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
       }
       await updateRow("repairs", selectedJob.id, updates);
 
-      // มาร์กคำขอเบิกอะไหล่ที่ดึงเข้าบิลแล้วว่า "ออกบิลแล้ว"
+      // มาร์กคำขอเบิกที่ถูกดึงเข้าบิลแล้วว่า "ออกบิลแล้ว" กันถูกเสนอซ้ำในบิลใบอื่น
+      // ทีหลัง (พฤติกรรมเดียวกับ _addPartRequestToInvoice() ฝั่งแอป)
       await Promise.all(
         items
           .filter((it) => it.sourceRequestId)
@@ -287,22 +290,22 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
           onChange={(e) => setRepairId(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[15px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
         >
-          <option value="">เลือกงานที่พร้อมออกบิล (มีราคาประเมินและอนุมัติอะไหล่แล้ว)...</option>
+          <option value="">เลือกงานที่เสร็จสิ้นแล้วและยังไม่ออกบิล...</option>
           {invoiceableJobs.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.ticketNo || `#${r.id}`} — {r.customer_username || "-"} ({r.machine || "-"}) [ประเมิน: {Number(r.estimated_price).toLocaleString("th-TH")} บาท]
+              {r.ticketNo || `#${r.id}`} — {r.customer_username || "-"} ({r.machine || "-"})
             </option>
           ))}
         </select>
         {invoiceableJobs.length === 0 ? (
-          <p className="text-xs text-slate-400 mt-2">
-            ไม่มีงานที่พร้อมออกบิลตอนนี้ (ต้องเป็นงานที่ช่างกรอกราคาประเมิน และมีคำขอเบิกอะไหล่ที่แอดมินอนุมัติครบแล้ว)
-          </p>
+          <p className="text-xs text-slate-400 mt-2">ไม่มีงานที่พร้อมออกบิลตอนนี้ (ต้องเป็นงานที่เสร็จสิ้นแล้วและยังไม่เคยออกบิล)</p>
         ) : null}
       </div>
 
       {selectedJob ? (
         <>
+          {/* 🛡️ [ใหม่] การรับประกัน — เหมือนการ์ด "การรับประกัน" ในหน้าออกบิลฝั่งแอป
+              ตรวจจับอัตโนมัติจากข้อมูลเครื่องจักร แอดมินเปิด/ปิดเองทีหลังได้ */}
           <div className="rounded-xl border border-slate-100 p-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -320,6 +323,7 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
             </p>
           </div>
 
+          {/* รายการในบิล — เพิ่ม/แก้ไข/ลบได้อิสระเหมือนฝั่งแอป */}
           <div className="rounded-xl border border-slate-100 p-4">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-semibold text-slate-500">รายการในบิล</p>
@@ -369,9 +373,10 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
             )}
           </div>
 
+          {/* คำขอเบิกอะไหล่ที่อนุมัติแล้ว — กดเพิ่มเข้าบิลได้ทันที ไม่ต้องพิมพ์เอง */}
           {availablePartRequests.length > 0 ? (
             <div className="rounded-xl border border-slate-100 p-4">
-              <p className="text-xs font-semibold text-slate-500 mb-2">คำขอเบิกอะไหล่ที่อนุมัติแล้ว</p>
+              <p className="text-xs font-semibold text-slate-500 mb-2">คำขอเบิกอะไหล่ที่อนุมัติแล้ว (ยังไม่ออกบิล)</p>
               <div className="space-y-1.5">
                 {availablePartRequests.map((pr) => {
                   const added = addedRequestIds.has(pr.id);
@@ -396,6 +401,7 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
             </div>
           ) : null}
 
+          {/* 💸 [ใหม่] ส่วนลด + ภาษี — เหมือนหน้าออกบิลฝั่งแอปทุกจุด */}
           <div className="rounded-xl border border-slate-100 p-4 space-y-3">
             <div>
               <label className="text-xs font-medium text-slate-500 mb-1 block">ส่วนลด (บาท)</label>
@@ -478,6 +484,12 @@ function CreateInvoiceModal({ repairs, partRequests, spareParts, machines, onClo
   );
 }
 
+// -----------------------------------------------------------------------------
+// 🧾 [ใหม่] ใบแจ้งหนี้จริงต่อ 1 งานซ่อม — แยกจาก "ดาวน์โหลดรายงาน" ในหน้ารายงาน
+// ที่เป็นแค่สรุปภาพรวมทั้งระบบ ใบนี้เป็นเอกสารทางการที่พิมพ์ให้ลูกค้าถือกลับได้
+// จริง มีเลขที่ใบแจ้งหนี้ + รายการอะไหล่/ค่าแรง + ที่อยู่ลูกค้า ใช้ window.print()
+// แบบเดียวกับที่ทำไว้ในหน้ารายงาน (ไม่ต้องเพิ่มไลบรารี PDF ใหม่)
+// -----------------------------------------------------------------------------
 function formatCustomerAddress(c) {
   if (!c) return "-";
   const parts = [
@@ -495,12 +507,18 @@ function InvoiceModal({ repair, customer, companySettings, onClose }) {
   const items = Array.isArray(repair.invoice_items) ? repair.invoice_items : [];
   const laborCost = Number(repair.labor_cost) || 0;
   const total = Number(repair.total_price) || 0;
+  // 🆕 [ใหม่] breakdown ส่วนลด/ภาษี — มีเฉพาะบิลที่ออกจากฟอร์มใหม่ (เว็บ) เท่านั้น
+  // บิลเก่า/บิลที่ออกจากแอปจะไม่มีฟิลด์พวกนี้ (แอปเก็บแค่ total_price รวมสุทธิ)
+  // จึงต้องเช็คก่อนแสดงเสมอ
   const subtotal = Number(repair.invoice_subtotal) || 0;
   const discount = Number(repair.invoice_discount) || 0;
   const vatAmount = Number(repair.invoice_vat_amount) || 0;
   const whtAmount = Number(repair.invoice_wht_amount) || 0;
   const hasBreakdown = subtotal > 0;
   const isPaid = repair.is_paid === 1 || repair.is_paid === true;
+  // 🆕 [ใหม่] แยกโชว์ "ไม่มีค่าใช้จ่าย (ประกัน)" แทน "ชำระแล้ว" เฉยๆ กันลูกค้า/
+  // แอดมินเข้าใจผิดว่ามีการโอนเงินจริงเกิดขึ้น (ดู is_warranty_covered ที่
+  // CreateInvoiceModal เซ็ตไว้ตอนออกบิล หรือฝั่งแอปที่ updateRepairBill() ตั้งให้)
   const isWarrantyCovered = repair.is_warranty_covered === true || repair.is_warranty_covered === 1;
   const issuedDate = repair.invoiced_at ? new Date(repair.invoiced_at) : null;
   const dateLabel = issuedDate ? formatDateBySetting(issuedDate) : "-";
@@ -529,6 +547,10 @@ function InvoiceModal({ repair, customer, companySettings, onClose }) {
     >
       <style>{`
         @media print {
+          /* 🐛 [แก้ไข] BUG เดียวกับหน้า Dashboard — Modal ที่ห่ออยู่มี
+             overflow-y-auto + max-h-[88vh] เป็น position: relative อยู่แล้ว
+             ใช้ position: absolute ให้พื้นที่พิมพ์เลยโดนตัดตามกรอบ Modal แทน
+             เปลี่ยนเป็น fixed ให้ยึดวิวพอร์ตทั้งหน้าแทน */
           body * { visibility: hidden; }
           #print-invoice-area, #print-invoice-area * { visibility: visible; }
           #print-invoice-area {
@@ -609,6 +631,8 @@ function InvoiceModal({ repair, customer, companySettings, onClose }) {
 
         <div className="flex justify-end">
           <div className="w-64">
+            {/* 🆕 [ใหม่] โชว์ breakdown ส่วนลด/VAT/หัก ณ ที่จ่าย ถ้ามี (เฉพาะบิลที่
+                ออกจากฟอร์มใหม่บนเว็บ) */}
             {hasBreakdown ? (
               <>
                 <div className="flex items-center justify-between py-1 text-sm">
@@ -657,11 +681,21 @@ export default function FinancePage() {
   const { data: partRequests } = useDbList("part_requests");
   const { data: spareParts } = useDbList("spare_parts");
   const { data: customers } = useDbList("customers");
+  // 🆕 [ใหม่] โหลดตาราง machines มาด้วย ให้ CreateInvoiceModal เช็คประกันของ
+  // เครื่องจักรที่ผูกกับงานซ่อมได้ (เหมือนหน้าออกบิลฝั่งแอป)
   const { data: machines } = useDbList("machines");
+  // 🔴 [แก้ไข] state เปิด/ปิด modal "ออกใบแจ้งหนี้ใหม่"
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+  // 🧾 [ใหม่] state เปิด/ปิด modal ดู/พิมพ์ใบแจ้งหนี้ของงานที่เลือก + ข้อมูล
+  // บริษัทจากหน้าตั้งค่า (ใช้เป็นหัวใบแจ้งหนี้)
   const [viewingInvoice, setViewingInvoice] = useState(null);
+  // 🔴 [ใหม่] state เปิด/ปิด modal ดูสลิปโอนเงินที่ลูกค้าอัปโหลดมาจากแอปมือถือ
   const [viewingSlip, setViewingSlip] = useState(null);
   const [companySettings, setCompanySettings] = useState(null);
+  // 🔴 [แก้ไข] itemsPerPageFinance/dateFormat ย้ายไปเป็นค่าตั้งค่าส่วนตัวราย
+  // แอดมินแล้ว (ไม่ได้อยู่ใน web_settings รวมของบริษัทอีกต่อไป) เลยต้องดึงจาก
+  // useWebSettings() แยกออกมาจาก companySettings ที่เหลือไว้แค่ข้อมูลบริษัท
+  // (ชื่อ/เบอร์/อีเมล) สำหรับหัวใบแจ้งหนี้เท่านั้น
   const { settings: webSettings } = useWebSettings();
 
   useEffect(() => {
@@ -670,7 +704,12 @@ export default function FinancePage() {
       .catch((err) => console.error("[FinancePage] load settings failed:", err));
   }, []);
 
+  // งานที่ "ออกบิลแล้ว" คือมี total_price ตั้งไว้มากกว่า 0
   const invoiced = repairs.filter((r) => Number(r.total_price) > 0);
+
+  // 🆕 [ใหม่] ไม่นับบิลที่อยู่ในประกัน (is_warranty_covered) เป็นรายได้จริง แม้จะ
+  // ถูกมาร์ก is_paid ให้อัตโนมัติตอนออกบิลก็ตาม เพราะลูกค้าไม่ได้จ่ายเงินจริง —
+  // ให้ตรงกับ getAdminDashboardSummary() ฝั่งแอปที่กันไว้เหมือนกัน
   const isWarrantyRow = (r) => r.is_warranty_covered === true || r.is_warranty_covered === 1;
   const paid = invoiced.filter((r) => !isWarrantyRow(r) && (r.is_paid === 1 || r.is_paid === true));
   const unpaid = invoiced.filter((r) => !isWarrantyRow(r) && !(r.is_paid === 1 || r.is_paid === true));
@@ -680,7 +719,10 @@ export default function FinancePage() {
 
   async function markAsPaid(repair) {
     try {
+      // 🔔 [ใหม่] เคลียร์ธง payment_overdue_notified ไปด้วยตอนมาร์กว่าชำระแล้ว
+      // เผื่ออนาคตมีเหตุต้องกลับไปเป็นค้างชำระอีกครั้ง จะได้แจ้งเตือนซ้ำได้
       await updateRow("repairs", repair.id, { is_paid: 1, payment_overdue_notified: 0 });
+      // 📝 [ใหม่] บันทึก activity log — เงินเข้าออกควรมีร่องรอยเสมอ
       const admin = getSessionAdmin();
       logActivity({
         adminUsername: admin?.username,
@@ -694,6 +736,9 @@ export default function FinancePage() {
   }
 
   const sorted = [...invoiced].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+  // 🆕 จำนวนรายการต่อหน้า อ่านมาจากหน้าตั้งค่า > ระบบทั่วไป (ของหน้า "การเงิน")
+  // — เป็นค่าส่วนตัวของแอดมินคนนี้ (webSettings) ไม่ใช่ companySettings แล้ว
   const pageSize = Number(webSettings.itemsPerPageFinance) || 20;
   const [page, setPage] = useState(1);
   useEffect(() => {
@@ -705,6 +750,8 @@ export default function FinancePage() {
 
   return (
     <div>
+      {/* 🔴 [แก้ไข] เอาหัวข้อ "การเงิน" ออก เพราะซ้ำกับ Header บนสุด เหลือแค่
+          ปุ่ม "ออกใบแจ้งหนี้ใหม่" ชิดขวา */}
       <div className="flex justify-end mb-5">
         <PrimaryButton icon={Plus} onClick={() => setCreatingInvoice(true)}>
           ออกใบแจ้งหนี้ใหม่
@@ -765,6 +812,9 @@ export default function FinancePage() {
               <tbody>
                 {paged.map((r) => {
                   const isPaid = r.is_paid === 1 || r.is_paid === true;
+                  // 🔴 [แก้บั๊ก] เดิมมีแค่ isPaid ตัวเดียว ใช้ getPaymentState แทน
+                  // เพื่อแยกสถานะ "รอตรวจสอบสลิป" (มีสลิปแล้วแต่ยังไม่กดยืนยัน)
+                  // ออกจาก "ยังไม่ชำระ" (ยังไม่มีอะไรเลย)
                   const state = getPaymentState(r);
                   const badgeText =
                     state === "warranty"
@@ -789,6 +839,8 @@ export default function FinancePage() {
                       <td className="py-2.5 text-slate-700">{r.customer_username || "-"}</td>
                       <td className="py-2.5 text-slate-700">{Number(r.total_price || 0).toLocaleString("th-TH")} บาท</td>
                       <td className="py-2.5">
+                        {/* 🎨 ชำระแล้ว/ประกัน = badge เขียว / รอตรวจสอบสลิป = badge ฟ้า /
+                            ยังไม่ชำระ = badge ส้ม */}
                         <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${badgeClass}`}>
                           {state === "warranty" ? <ShieldCheck size={11} /> : null}
                           {badgeText}
@@ -796,6 +848,10 @@ export default function FinancePage() {
                       </td>
                       <td className="py-2.5 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {/* 🧾 [ใหม่] ปุ่มดู/พิมพ์ใบแจ้งหนี้จริง — โชว์เฉพาะงานที่
+                              มีเลขที่ใบแจ้งหนี้แล้ว (ออกผ่านฟอร์มใหม่ที่สร้าง
+                              invoice_no ให้) งานเก่าที่ออกบิลไว้ก่อนหน้านี้จะยัง
+                              ไม่มีเลขที่ใบแจ้งหนี้ย้อนหลัง */}
                           {r.invoice_no ? (
                             <button
                               onClick={() => setViewingInvoice(r)}
@@ -804,6 +860,10 @@ export default function FinancePage() {
                               <FileText size={13} /> ดูใบแจ้งหนี้
                             </button>
                           ) : null}
+                          {/* 🔴 [ใหม่] ปุ่มดูสลิปโอนเงิน — โชว์เฉพาะงานที่ลูกค้า
+                              อัปโหลดสลิปมาจากแอปมือถือแล้ว (repairs.customer_
+                              payment_slip) ให้แอดมินเช็กหลักฐานก่อนกดยืนยัน
+                              แทนที่จะต้องเปิดแอปมือถือดูแยกต่างหาก */}
                           {r.customer_payment_slip ? (
                             <button
                               onClick={() => setViewingSlip(r)}
@@ -812,6 +872,9 @@ export default function FinancePage() {
                               <Receipt size={13} /> ดูสลิป
                             </button>
                           ) : null}
+                          {/* 🆕 [ใหม่] ซ่อนปุ่มนี้ด้วยถ้าอยู่ในประกัน (state ===
+                              "warranty") เพราะ is_paid ถูกมาร์กให้แล้วอัตโนมัติ
+                              ไม่มีอะไรให้กดยืนยันซ้ำ */}
                           {!isPaid && state !== "warranty" ? (
                             <button
                               onClick={() => markAsPaid(r)}
@@ -858,6 +921,8 @@ export default function FinancePage() {
         />
       ) : null}
 
+      {/* 🔴 [ใหม่] modal ดูสลิปโอนเงินเต็มรูป — ให้แอดมินเช็กหลักฐานแล้วกด
+          "มาร์กว่าชำระแล้ว" ต่อได้เลยในหน้าเดียวกัน ไม่ต้องปิดแล้วไปหาปุ่มที่ตาราง */}
       {viewingSlip ? (
         <Modal
           title={`สลิปโอนเงิน — ${viewingSlip.ticketNo || `#${viewingSlip.id}`}`}
