@@ -285,7 +285,6 @@ class _ProfileTechnicianPageState extends State<ProfileTechnicianPage> {
                       ),
                       const SizedBox(height: 12),
                       ThaiAddressAutocompleteField(
-                        key: ValueKey('changwat_${changwatCtrl.text}'),
                         labelText: 'จังหวัด',
                         controller: changwatCtrl,
                         optionsBuilder: () =>
@@ -301,8 +300,6 @@ class _ProfileTechnicianPageState extends State<ProfileTechnicianPage> {
                       ),
                       const SizedBox(height: 12),
                       ThaiAddressAutocompleteField(
-                        key: ValueKey(
-                            'amphoe_${changwatCtrl.text}_${amphoeCtrl.text}'),
                         labelText: 'อำเภอ / เขต',
                         controller: amphoeCtrl,
                         enabled: changwatCtrl.text.trim().isNotEmpty,
@@ -318,9 +315,8 @@ class _ProfileTechnicianPageState extends State<ProfileTechnicianPage> {
                       ),
                       const SizedBox(height: 12),
                       ThaiAddressAutocompleteField(
-                        key: ValueKey(
-                            'tambon_${changwatCtrl.text}_${amphoeCtrl.text}_${tambonCtrl.text}'),
                         labelText: 'ตำบล / แขวง',
+                        moveToNextField: false,
                         controller: tambonCtrl,
                         enabled: changwatCtrl.text.trim().isNotEmpty &&
                             amphoeCtrl.text.trim().isNotEmpty,

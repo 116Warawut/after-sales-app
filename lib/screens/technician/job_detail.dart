@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -62,6 +63,14 @@ class _JobDetailPageState extends State<JobDetailPage> {
   int _queuePosition = 1;
   int _queueTotal = 1;
   bool _isArriving = false;
+
+  // 🆕 [ใหม่] อะไหล่ที่เบิกไปแล้วสำหรับงานนี้ (ทุกสถานะคำขอ) พร้อมราคาต่อหน่วย
+  // — part_requests ไม่ได้เก็บราคาไว้เอง (เก็บแค่ชื่อ/รหัส/จำนวน) จึงต้อง join
+  // กับตาราง spare_parts ด้วย part_id เอาราคาล่าสุดมาแสดง เหมือนที่
+  // admin_create_invoice.dart ทำตอนดึงอะไหล่มาออกบิล
+  bool _loadingUsedParts = true;
+  List<Map<String, dynamic>> _usedParts = [];
+  final Map<String, double> _usedPartUnitPrice = {};
 
   @override
   void initState() {
@@ -153,7 +162,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
           technicianCode: '-',
           technicianPhone: '-',
           images: imageList,
-          billId: toStringOrNull(repair['bill_id']) ?? '-',
+          billId: resolveBillId(repair) ?? '-', // 🐛 fallback invoice_no (บิลจากเว็บ)
           totalPrice: toDoubleOrNull(repair['total_price']) ?? 0,
           isPaid: toIntOrNull(repair['is_paid']) == 1 ||
               repair['is_paid'] == true,
@@ -188,6 +197,41 @@ class _JobDetailPageState extends State<JobDetailPage> {
       if (!mounted) return;
       setState(() => _loading = false);
       _snack('เกิดข้อผิดพลาดในการโหลดข้อมูล: $e');
+    }
+
+    // 🆕 [ใหม่] โหลดรายการอะไหล่ที่เบิกไปแล้วของงานนี้แยกต่างหาก (ไม่บล็อก UI
+    // หลัก) เผื่อฝั่งอะไหล่ล่มหรือช้าก็ไม่ทำให้หน้ารายละเอียดงานโหลดไม่ขึ้นไปด้วย
+    unawaited(_loadUsedParts());
+  }
+
+  Future<void> _loadUsedParts() async {
+    setState(() => _loadingUsedParts = true);
+    try {
+      final requests = await db.DatabaseHelper.instance
+          .getPartRequestsForRepair(widget.repairId);
+
+      final prices = <String, double>{};
+      for (final r in requests) {
+        final partId = r['part_id'];
+        if (partId == null) continue;
+        final partKey = partId.toString();
+        if (prices.containsKey(partKey)) continue;
+        final part = await db.DatabaseHelper.instance.getSparePartById(partId);
+        prices[partKey] = toDoubleOrNull(part?['price']) ?? 0;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _usedParts = requests;
+        _usedPartUnitPrice
+          ..clear()
+          ..addAll(prices);
+        _loadingUsedParts = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading used parts for repair: $e');
+      if (!mounted) return;
+      setState(() => _loadingUsedParts = false);
     }
   }
 
@@ -659,6 +703,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
           code: _job.adminCode,
           onMessage: _messageAdmin,
         ),
+        _UsedPartsCard(
+          loading: _loadingUsedParts,
+          parts: _usedParts,
+          unitPriceByPartId: _usedPartUnitPrice,
+        ),
         _StageActionCard(
           stage: _stage,
           priceController: _priceController,
@@ -718,6 +767,187 @@ class _JobInfoCard extends StatelessWidget {
             icon: Icons.map_outlined,
             onPressed: onMap,
             verticalPadding: 12,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 🆕 [ใหม่] การ์ด "อะไหล่ที่เบิกไปแล้ว" — โชว์รายการที่ช่างเบิกไปสำหรับงานนี้
+/// (ทุกสถานะคำขอ: รอดำเนินการ / อนุมัติแล้ว / ปฏิเสธ / ออกบิลแล้ว) พร้อมจำนวน
+/// และราคาต่อหน่วย เพื่อให้ช่างเช็คย้อนหลังได้ว่าเบิกอะไรไปแล้วบ้างโดยไม่ต้อง
+/// เปิดหน้าเบิกอะไหล่ใหม่แล้วไล่หา — ไม่แสดงการ์ดนี้เลยถ้ายังไม่เคยเบิกอะไรเลย
+class _UsedPartsCard extends StatelessWidget {
+  final bool loading;
+  final List<Map<String, dynamic>> parts;
+  final Map<String, double> unitPriceByPartId;
+
+  const _UsedPartsCard({
+    required this.loading,
+    required this.parts,
+    required this.unitPriceByPartId,
+  });
+
+  double _priceOf(Map<String, dynamic> r) {
+    final partId = r['part_id'];
+    if (partId == null) return 0;
+    return unitPriceByPartId[partId.toString()] ?? 0;
+  }
+
+  int _quantityOf(Map<String, dynamic> r) => toIntOrNull(r['quantity']) ?? 0;
+
+  @override
+  Widget build(BuildContext context) {
+    // กำลังโหลดครั้งแรก และยังไม่มีข้อมูลเก่าโชว์ค้างอยู่ -> ซ่อนการ์ดไปก่อน
+    // กันไม่ให้การ์ดเปล่ากระพริบก่อนโหลดเสร็จ
+    if (loading && parts.isEmpty) return const SizedBox.shrink();
+    // ไม่เคยเบิกอะไหล่ชิ้นไหนเลยสำหรับงานนี้ -> ไม่ต้องโชว์การ์ดนี้เลย
+    if (!loading && parts.isEmpty) return const SizedBox.shrink();
+
+    final total = parts.fold<double>(
+      0,
+      (sum, r) => sum + (_priceOf(r) * _quantityOf(r)),
+    );
+
+    return JobSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const JobSectionTitle('อะไหล่ที่เบิกไปแล้ว'),
+          const SizedBox(height: 16),
+          ...parts.map((r) => _UsedPartRow(
+                name: (r['part_name']?.toString()) ?? '-',
+                code: r['part_code']?.toString(),
+                quantity: _quantityOf(r),
+                unitPrice: _priceOf(r),
+                status: (r['status']?.toString()) ?? 'รอดำเนินการ',
+              )),
+          const Divider(height: 24, color: AppColors.border),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'รวมมูลค่าอะไหล่ที่เบิก',
+                  style: TextStyle(
+                    fontFamily: AppStyles.fontFamily,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textMain,
+                  ),
+                ),
+              ),
+              Text(
+                '${total.toStringAsFixed(0)} บาท',
+                style: const TextStyle(
+                  fontFamily: AppStyles.fontFamily,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// แถวรายการอะไหล่ 1 ชิ้นในการ์ด "อะไหล่ที่เบิกไปแล้ว"
+class _UsedPartRow extends StatelessWidget {
+  final String name;
+  final String? code;
+  final int quantity;
+  final double unitPrice;
+  final String status;
+
+  const _UsedPartRow({
+    required this.name,
+    required this.code,
+    required this.quantity,
+    required this.unitPrice,
+    required this.status,
+  });
+
+  // สีแบดจ์สถานะ — ให้ตรงชุดเดียวกับที่หน้าแอดมิน (admin_spare_part.dart) ใช้
+  (Color bg, Color text) get _statusColors {
+    if (status == 'อนุมัติแล้ว') {
+      return (AppColors.greenBg, AppColors.greenText);
+    }
+    if (status == 'ปฏิเสธ') {
+      return (AppColors.redBg, AppColors.redText);
+    }
+    if (status == 'ออกบิลแล้ว') {
+      return (AppColors.blueBg, AppColors.blueText);
+    }
+    return (AppColors.yellowBg, AppColors.yellowText); // รอดำเนินการ
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (bg, text) = _statusColors;
+    final lineTotal = unitPrice * quantity;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontFamily: AppStyles.fontFamily,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textMain,
+                  ),
+                ),
+                if (code != null && code!.isNotEmpty && code != '-') ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'รหัส : $code',
+                    style: const TextStyle(
+                      fontFamily: AppStyles.fontFamily,
+                      fontSize: 12,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 4),
+                Text(
+                  '$quantity ชิ้น x ${unitPrice.toStringAsFixed(0)} บาท = '
+                  '${lineTotal.toStringAsFixed(0)} บาท',
+                  style: const TextStyle(
+                    fontFamily: AppStyles.fontFamily,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textLabel,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              status,
+              style: TextStyle(
+                fontFamily: AppStyles.fontFamily,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: text,
+              ),
+            ),
           ),
         ],
       ),

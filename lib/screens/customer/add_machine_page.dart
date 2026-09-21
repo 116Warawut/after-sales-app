@@ -446,7 +446,6 @@ class _AddMachinePageState extends State<AddMachinePage> {
                         // พิมพ์ค้นหาได้ และไล่ระดับตามจังหวัด/อำเภอที่เลือกไว้
                         // ก่อนหน้า พร้อมเติมรหัสไปรษณีย์ให้อัตโนมัติ
                         ThaiAddressAutocompleteField(
-                          key: ValueKey('changwat_${_changwatController.text}'),
                           labelText: 'จังหวัด',
                           controller: _changwatController,
                           optionsBuilder: () =>
@@ -463,8 +462,6 @@ class _AddMachinePageState extends State<AddMachinePage> {
                         const SizedBox(height: 16),
 
                         ThaiAddressAutocompleteField(
-                          key: ValueKey(
-                              'amphoe_${_changwatController.text}_${_amphoeController.text}'),
                           labelText: 'อำเภอ / เขต',
                           controller: _amphoeController,
                           enabled: _changwatController.text.trim().isNotEmpty,
@@ -481,9 +478,8 @@ class _AddMachinePageState extends State<AddMachinePage> {
                         const SizedBox(height: 16),
 
                         ThaiAddressAutocompleteField(
-                          key: ValueKey(
-                              'tambon_${_changwatController.text}_${_amphoeController.text}_${_tambonController.text}'),
                           labelText: 'ตำบล / แขวง',
+                          moveToNextField: false,
                           controller: _tambonController,
                           enabled: _changwatController.text.trim().isNotEmpty &&
                               _amphoeController.text.trim().isNotEmpty,

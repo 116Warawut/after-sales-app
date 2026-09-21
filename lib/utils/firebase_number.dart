@@ -73,3 +73,16 @@ dynamic resolveRecordId(Map<String, dynamic> map) {
 /// กันเคสที่ field ที่ปกติเป็น String (เช่น ticketNo, status, เบอร์โทร) ถูกเก็บ
 /// เป็น int/num มาจากบาง record แล้วโดน `as String?` โยน error เช่นกัน
 String? toStringOrNull(dynamic v) => v?.toString();
+
+/// 🐛 [แก้บัค] อ่านเลขที่บิลของ record ในตาราง `repairs`
+/// แอปเขียนเลขบิลลงฟิลด์ `bill_id` (ดู updateRepairBill() ใน services.dart) แต่บิลที่
+/// ออกจากเว็บแอดมินรุ่นเก่าเขียนไว้แค่ `invoice_no` ทำให้ฝั่งแอปโชว์ "-" — ให้ใช้
+/// `bill_id` เป็นหลัก แล้ว fallback ไปที่ `invoice_no` เมื่อ `bill_id` ว่าง/ไม่มี
+/// คืน null ถ้าไม่มีทั้งสองฟิลด์ (ยังไม่ออกบิล)
+String? resolveBillId(Map<String, dynamic> map) {
+  final billId = map['bill_id']?.toString().trim();
+  if (billId != null && billId.isNotEmpty) return billId;
+  final invoiceNo = map['invoice_no']?.toString().trim();
+  if (invoiceNo != null && invoiceNo.isNotEmpty) return invoiceNo;
+  return null;
+}

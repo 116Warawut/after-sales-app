@@ -51,7 +51,7 @@ class _PaymentPageState extends State<PaymentPage> {
       setState(() {
         if (repair != null) {
           _ticketNo = (repair['ticketNo']?.toString()) ?? '-';
-          _billId = (repair['bill_id']?.toString()) ?? '-';
+          _billId = resolveBillId(repair) ?? '-'; // 🐛 fallback invoice_no (บิลจากเว็บ)
           _totalPrice = toDoubleOrNull(repair['total_price']) ?? 0;
           _paid = (toIntOrNull(repair['is_paid']) ?? 0) == 1 || repair['is_paid'] == true;
           _isWarrantyCovered = repair['is_warranty_covered'] == true ||

@@ -22,6 +22,7 @@ import useDbList from "./hooks/useDbList";
 import useWebSettings from "./hooks/useWebSettings";
 import useSessionGuard from "./hooks/useSessionGuard";
 import { applyTheme } from "./theme";
+import { CallProvider } from "./contexts/CallContext";
 
 function saveSession(admin) {
   const { password, ...safeAdmin } = admin || {};
@@ -237,44 +238,46 @@ function AuthenticatedShell({
   const meta = PAGE_META[activePage];
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-      <Sidebar
-        activePage={activePage}
-        onNavigate={onNavigate}
-        onLogout={onLogout}
-        open={sidebarOpen}
-        onClose={onCloseSidebar}
-        unreadNotifications={unreadNotifications}
-        unreadChats={unreadChats}
-        unreadJobs={unreadJobs}
-        unreadParts={unreadParts}
-        unreadFinance={unreadFinance}
-      />
-      <main className="flex-1 overflow-y-auto w-full">
-        <Header
-          greeting={meta.greeting}
-          subtitle={meta.subtitle}
-          admin={admin}
+    <CallProvider admin={admin}>
+      <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+        <Sidebar
+          activePage={activePage}
           onNavigate={onNavigate}
-          onMenuClick={onOpenSidebar}
+          onLogout={onLogout}
+          open={sidebarOpen}
+          onClose={onCloseSidebar}
           unreadNotifications={unreadNotifications}
           unreadChats={unreadChats}
+          unreadJobs={unreadJobs}
+          unreadParts={unreadParts}
+          unreadFinance={unreadFinance}
         />
-        <div className="px-4 sm:px-8 pb-10">
-          <ActivePageComponent
+        <main className="flex-1 overflow-y-auto w-full">
+          <Header
+            greeting={meta.greeting}
+            subtitle={meta.subtitle}
+            admin={admin}
             onNavigate={onNavigate}
-            initialTab={activePage === "jobs" ? jobsInitialTab : undefined}
-            initialQuery={pageInitialQuery[activePage]}
+            onMenuClick={onOpenSidebar}
+            unreadNotifications={unreadNotifications}
+            unreadChats={unreadChats}
           />
-        </div>
-        <NotificationToasts
-          notifications={notifications}
-          currentUsername={admin?.username}
-          onNavigate={onNavigate}
-          showToastPopup={webSettings.notifyToastPopup}
-          showDesktopPopup={webSettings.notifyDesktopPopup}
-        />
-      </main>
-    </div>
+          <div className="px-4 sm:px-8 pb-10">
+            <ActivePageComponent
+              onNavigate={onNavigate}
+              initialTab={activePage === "jobs" ? jobsInitialTab : undefined}
+              initialQuery={pageInitialQuery[activePage]}
+            />
+          </div>
+          <NotificationToasts
+            notifications={notifications}
+            currentUsername={admin?.username}
+            onNavigate={onNavigate}
+            showToastPopup={webSettings.notifyToastPopup}
+            showDesktopPopup={webSettings.notifyDesktopPopup}
+          />
+        </main>
+      </div>
+    </CallProvider>
   );
 }

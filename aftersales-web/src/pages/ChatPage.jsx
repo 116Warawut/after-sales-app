@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { MessageSquare, Send, ImagePlus, Loader2, Pencil, Trash2, Check, X, CheckCheck, ArrowLeft, Search } from "lucide-react";
+import { MessageSquare, Send, ImagePlus, Loader2, Pencil, Trash2, Check, X, CheckCheck, ArrowLeft, Search, PhoneCall } from "lucide-react";
 import { PageHeader, EmptyState, ConfirmDialog } from "../components/ui";
 import useDbList from "../hooks/useDbList";
 import { addRow, updateRow, createNotification, getWebSettings } from "../services/firebaseDb";
 import { uploadImage } from "../services/cloudinary";
 import { getSessionAdmin } from "../services/session";
+import { useCall } from "../contexts/CallContext";
 
 // ---------------------------------------------------------------------------
 // 🎨 ภาพรวมสไตล์หน้านี้: เลย์เอาต์ 2 คอลัมน์ (รายชื่อห้องซ้าย 320px คงที่ +
@@ -19,6 +20,10 @@ export default function ChatPage({ initialQuery }) {
   const admin = getSessionAdmin();
   const { data: repairs, loading: loadingRepairs } = useDbList("repairs");
   const { data: messages, loading: loadingMessages } = useDbList("chat_messages");
+  // 🆕 [ใหม่] โหลดรายชื่อลูกค้า/ช่าง ไว้แค่แสดงชื่อ+รูปตอนกดปุ่มโทรในหัวห้องแชท
+  const { data: customersList } = useDbList("customers");
+  const { data: techniciansList } = useDbList("technicians");
+  const { callPerson } = useCall();
   const [selectedRepairId, setSelectedRepairId] = useState(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -283,6 +288,40 @@ export default function ChatPage({ initialQuery }) {
   // ทุกข้อความของเราเองที่ is_read เป็นจริง ไม่จำกัดแค่ข้อความล่าสุด ตรงไปตรงมา
   // กับข้อมูลจริงที่สุด ไม่ต้องมีตัวชี้ lastReadOwnMessage อีกแล้ว
 
+  // 🆕 [ใหม่] ดึงชื่อ+รูปของลูกค้า/ช่างจาก username ไว้ใช้ตอนกดปุ่มโทร
+  const customerByUsername = useMemo(() => {
+    const map = {};
+    (customersList || []).forEach((c) => {
+      map[c.username] = c;
+    });
+    return map;
+  }, [customersList]);
+  const technicianByUsername = useMemo(() => {
+    const map = {};
+    (techniciansList || []).forEach((t) => {
+      map[t.username] = t;
+    });
+    return map;
+  }, [techniciansList]);
+
+  function callCustomer(username) {
+    const c = customerByUsername[username];
+    callPerson({
+      username,
+      name: c ? `${c.name || ""} ${c.surname || ""}`.trim() || username : username,
+      photoUrl: c?.photo_url,
+    });
+  }
+
+  function callTechnician(username) {
+    const t = technicianByUsername[username];
+    callPerson({
+      username,
+      name: t?.tech_name || t?.name || username,
+      photoUrl: t?.photo_url,
+    });
+  }
+
   return (
     <div>
       {/* 🔴 [แก้ไข] ลดพื้นที่ที่หักออกจาก 220px เหลือ 150px — ค่าเดิมตั้งไว้ตอน
@@ -389,13 +428,35 @@ export default function ChatPage({ initialQuery }) {
               >
                 <ArrowLeft size={18} />
               </button>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-slate-800">
                   {selectedRoom.repair.ticketNo || `#${selectedRoom.repair.id}`}
                 </p>
                 <p className="text-xs text-slate-400">
                   ลูกค้า: {selectedRoom.repair.customer_username || "-"} · ช่าง: {selectedRoom.repair.technician_username || "ยังไม่มอบหมาย"}
                 </p>
+              </div>
+              {/* 🆕 [ใหม่] ปุ่มโทรหาลูกค้า/ช่างของงานนี้ (WebRTC ผ่านแอป) —
+                  เหมือนปุ่มโทรในหน้าแชทฝั่งแอปมือถือ (chat_screen.dart) */}
+              <div className="flex items-center gap-1 shrink-0">
+                {selectedRoom.repair.customer_username ? (
+                  <button
+                    onClick={() => callCustomer(selectedRoom.repair.customer_username)}
+                    title={`โทรหาลูกค้า (${selectedRoom.repair.customer_username})`}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-green-600 hover:bg-green-50"
+                  >
+                    <PhoneCall size={15} />
+                  </button>
+                ) : null}
+                {selectedRoom.repair.technician_username ? (
+                  <button
+                    onClick={() => callTechnician(selectedRoom.repair.technician_username)}
+                    title={`โทรหาช่าง (${selectedRoom.repair.technician_username})`}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-blue-600 hover:bg-blue-50"
+                  >
+                    <PhoneCall size={15} />
+                  </button>
+                ) : null}
               </div>
             </div>
 

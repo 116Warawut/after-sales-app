@@ -186,6 +186,10 @@ class AdminJobInfo {
   final List<String> problemPhotos;
   final String? problemReportedBy;
   final String? problemReportedAt;
+  // 🆕 [ใหม่] ใช้เช็คเงื่อนไขออกบิล (ดู _canIssueInvoice) — ราคาที่ช่างบันทึก
+  // ระหว่างซ่อม (estimated_price) และยอดที่ตั้งไปแล้วถ้าเคยออกบิล (total_price)
+  final double estimatedPrice;
+  final double totalPrice;
 
   const AdminJobInfo({
     required this.ticketId,
@@ -211,6 +215,8 @@ class AdminJobInfo {
     this.problemPhotos = const [],
     this.problemReportedBy,
     this.problemReportedAt,
+    this.estimatedPrice = 0,
+    this.totalPrice = 0,
   });
 
   bool get hasReport =>
@@ -240,6 +246,9 @@ class _AssignRepairFormDetailPageState
     extends State<AssignRepairFormDetailPage> {
   AdminJobInfo? _job;
   List<TechnicianItem> _technicians = [];
+  // 🆕 [ใหม่] คำขอเบิกอะไหล่ทุกสถานะของงานนี้ — ใช้เช็คว่ายังมีรายการค้าง
+  // "รอดำเนินการ" (แอดมินยังไม่อนุมัติ/ปฏิเสธ) อยู่ไหม ก่อนอนุญาตออกบิล
+  List<Map<String, dynamic>> _partRequests = [];
 
   String? _selectedTechnicianUsername;
   String? _assignedTechnicianUsername;
@@ -252,6 +261,25 @@ class _AssignRepairFormDetailPageState
   bool _isAssigning = false;
   bool _isCheckingQuota = false;
   bool _isResolvingProblem = false;
+
+  // 🆕 [ใหม่] เงื่อนไขออกบิล — ให้ตรงกับ isInvoiceable() ฝั่งเว็บ (JobDetailModal
+  // / FinancePage.jsx) ทุกจุด: ต้องยังไม่เคยออกบิล (total_price ยังไม่ตั้ง),
+  // ไม่ใช่งานที่ยกเลิกแล้ว, ช่างบันทึกราคาประเมินไว้แล้ว (estimated_price > 0),
+  // และคำขอเบิกอะไหล่ของงานนี้ต้องไม่มีรายการที่ยัง "รอดำเนินการ" ค้างอยู่ (ต้อง
+  // อนุมัติ/ปฏิเสธให้ครบก่อน) — เดิมเงื่อนไขนี้ไม่มีเลยฝั่งแอป ปุ่ม "ออกบิล" เลย
+  // โชว์ตลอดไม่ว่างานจะพร้อมออกบิลจริงหรือไม่
+  bool get _hasPendingPartRequests =>
+      _partRequests.any((r) => r['status']?.toString() == 'รอดำเนินการ');
+
+  bool get _canIssueInvoice {
+    final job = _job;
+    if (job == null) return false;
+    if (job.status == RepairStatus.cancelled) return false;
+    if (job.totalPrice > 0) return false;
+    if (job.estimatedPrice <= 0) return false;
+    if (_hasPendingPartRequests) return false;
+    return true;
+  }
 
   @override
   void initState() {
@@ -378,6 +406,8 @@ class _AssignRepairFormDetailPageState
           problemPhotos: probPhotos,
           problemReportedBy: probBy,
           problemReportedAt: probAt,
+          estimatedPrice: toDoubleOrNull(repairRow['estimated_price']) ?? 0,
+          totalPrice: toDoubleOrNull(repairRow['total_price']) ?? 0,
         );
 
         _assignedTechnicianUsername =
@@ -394,6 +424,11 @@ class _AssignRepairFormDetailPageState
         _selectedTechnicianUsername = _assignedTechnicianUsername;
         _appointmentDate =
             AppointmentDate.parse(_job?.appointmentDate) ?? DateTime.now();
+
+        // 🆕 [ใหม่] โหลดคำขอเบิกอะไหล่ทุกสถานะของงานนี้ ให้ _canIssueInvoice
+        // เช็คได้ว่ายังมีรายการค้าง "รอดำเนินการ" อยู่ไหม
+        _partRequests =
+            await dbHelper.getPartRequestsForRepair(widget.repairId);
       }
 
       await _refreshTechnicianWorkload();
@@ -989,33 +1024,35 @@ class _AssignRepairFormDetailPageState
                                 onAssign: _handleAssign,
                               ),
                             ],
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                style: AppStyles.primaryButton,
-                                onPressed: () async {
-                                  final saved = await Navigator.push<bool>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => AdminCreateInvoicePage(
-                                        initialRepairId:
-                                            widget.repairId.toString(),
-                                        initialTicketId: _job!.ticketId,
-                                        initialCustomerName:
-                                            _job!.customerName,
-                                        initialCustomerPhone:
-                                            _job!.customerPhone,
-                                        initialAddress: _job!.address,
+                            if (_canIssueInvoice) ...[
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  style: AppStyles.primaryButton,
+                                  onPressed: () async {
+                                    final saved = await Navigator.push<bool>(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => AdminCreateInvoicePage(
+                                          initialRepairId:
+                                              widget.repairId.toString(),
+                                          initialTicketId: _job!.ticketId,
+                                          initialCustomerName:
+                                              _job!.customerName,
+                                          initialCustomerPhone:
+                                              _job!.customerPhone,
+                                          initialAddress: _job!.address,
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                  if (saved == true) _loadDataFromDatabase();
-                                },
-                                icon: const Icon(Icons.receipt_long),
-                                label: const Text('ออกบิล'),
+                                    );
+                                    if (saved == true) _loadDataFromDatabase();
+                                  },
+                                  icon: const Icon(Icons.receipt_long),
+                                  label: const Text('ออกบิล'),
+                                ),
                               ),
-                            ),
+                            ],
                           ],
                         ),
             ),

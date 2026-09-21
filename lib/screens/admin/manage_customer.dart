@@ -598,7 +598,6 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
               ),
               const SizedBox(height: 12),
               ThaiAddressAutocompleteField(
-                key: ValueKey('changwat_${_changwatController.text}'),
                 labelText: 'จังหวัด',
                 controller: _changwatController,
                 optionsBuilder: () =>
@@ -614,8 +613,6 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
               ),
               const SizedBox(height: 12),
               ThaiAddressAutocompleteField(
-                key: ValueKey(
-                    'amphoe_${_changwatController.text}_${_amphoeController.text}'),
                 labelText: 'อำเภอ / เขต',
                 controller: _amphoeController,
                 enabled: _changwatController.text.trim().isNotEmpty,
@@ -634,9 +631,8 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
                 children: [
                   Expanded(
                     child: ThaiAddressAutocompleteField(
-                      key: ValueKey(
-                          'tambon_${_changwatController.text}_${_amphoeController.text}_${_tambonController.text}'),
                       labelText: 'ตำบล / แขวง',
+                      moveToNextField: false,
                       controller: _tambonController,
                       enabled: _changwatController.text.trim().isNotEmpty &&
                           _amphoeController.text.trim().isNotEmpty,

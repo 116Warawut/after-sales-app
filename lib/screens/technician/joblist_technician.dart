@@ -104,17 +104,6 @@ class _RepairListPageState extends State<RepairListPage> {
     });
   }
 
-  // 🐛 [แก้บัค] ช่างแจ้งว่างานที่เสร็จไปแล้ว (ของวันก่อนหน้า) ยังค้างโชว์อยู่ใน
-  // แท็บ "ทั้งหมด" ไม่หายไปไหน ทั้งที่ควรเห็นเฉพาะงานเสร็จของ "วันนี้" ปนอยู่กับ
-  // งานที่ยังไม่เสร็จ ส่วนงานเสร็จของวันก่อน ๆ ให้ไปดูย้อนหลังได้ที่แท็บ
-  // "เสร็จสิ้น" แทน (แท็บนั้นยังคงเก็บประวัติทั้งหมดไว้ครบ ไม่ได้ตัดออก) — ใช้
-  // รูปแบบวันที่เดียวกับที่ home_technician.dart ใช้เทียบ "วันนี้" (d/M/พ.ศ.)
-  bool _isDoneNotToday(customer_history.Ticket t) {
-    final now = DateTime.now();
-    final todayStr = '${now.day}/${now.month}/${now.year + 543}';
-    return t.status == customer_history.TicketStatus.done && t.date != todayStr;
-  }
-
   List<customer_history.Ticket> get _filteredTickets {
     final query = _searchQuery.trim().toLowerCase();
     return _tickets.where((t) {
@@ -122,9 +111,7 @@ class _RepairListPageState extends State<RepairListPage> {
       final matchesSearch = query.isEmpty ||
           t.ticketNo.toLowerCase().contains(query) ||
           t.device.toLowerCase().contains(query);
-      final hideFromAllTab =
-          _selectedTab == customer_history.FilterTab.all && _isDoneNotToday(t);
-      return matchesTab && matchesSearch && !hideFromAllTab;
+      return matchesTab && matchesSearch;
     }).toList();
   }
 
@@ -137,6 +124,8 @@ class _RepairListPageState extends State<RepairListPage> {
     );
     _loadTickets();
   }
+
+  String get _emptyStateMessage => 'ไม่มีรายการในสถานะนี้';
 
   @override
   Widget build(BuildContext context) {
@@ -216,14 +205,19 @@ class _RepairListPageState extends State<RepairListPage> {
                       color: AppColors.primary,
                       child: tickets.isEmpty
                           ? ListView(
-                              children: const [
-                                SizedBox(height: 120),
+                              children: [
+                                const SizedBox(height: 120),
                                 Center(
-                                  child: Text(
-                                    'ไม่มีรายการในสถานะนี้',
-                                    style: TextStyle(
-                                      color: AppColors.textSubtitle,
-                                      fontFamily: AppStyles.fontFamily,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 32),
+                                    child: Text(
+                                      _emptyStateMessage,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: AppColors.textSubtitle,
+                                        fontFamily: AppStyles.fontFamily,
+                                      ),
                                     ),
                                   ),
                                 ),

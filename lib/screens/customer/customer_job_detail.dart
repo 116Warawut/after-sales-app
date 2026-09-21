@@ -6,6 +6,7 @@ import 'package:after_sales/screens/shared/job_detail_ui.dart';
 import 'package:after_sales/screens/customer/technician_tracking.dart';
 import 'package:after_sales/screens/customer/payment_qr_sheet.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/firebase_number.dart' show resolveBillId;
 import 'package:after_sales/widgets.dart';
 
 /// หน้า "รายละเอียดงาน" ฝั่งลูกค้า
@@ -226,7 +227,7 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
       }
 
       final totalPrice = _asDouble(repair['total_price']) ?? 0;
-      final billId = _asString(repair['bill_id']) ?? '-';
+      final billId = resolveBillId(repair) ?? '-'; // 🐛 fallback invoice_no (บิลจากเว็บ)
       final isPaid = (_asInt(repair['is_paid']) ?? 0) == 1 || repair['is_paid'] == true;
       // 🆕 [ใหม่] เครื่องจักรอยู่ในประกัน — ไม่ต้องชำระเงิน (ดูฝั่งแอดมินที่
       // admin_create_invoice.dart / updateRepairBill() ใน services.dart)

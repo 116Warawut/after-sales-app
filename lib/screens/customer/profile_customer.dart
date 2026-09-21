@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/utils/thai_address.dart';
 import 'package:after_sales/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -365,83 +366,27 @@ class _UserProfilePageState extends State<UserProfilePage> {
               zipCtrl.text = tamMatch.first.zip;
             }
 
+            // 🐛 [แก้บัค] เดิมช่องจังหวัด/อำเภอ/ตำบลในหน้านี้เป็น Autocomplete ที่เขียนเอง
+            // และผูก ValueKey กับข้อความในช่อง + เรียก onSelected ทุกตัวอักษรที่พิมพ์
+            // ทำให้ช่องถูกสร้างใหม่ (เสียโฟกัส/คีย์บอร์ดเด้ง) และช่องอำเภอ/ตำบลไม่ขึ้น
+            // รายการหลังเลือกจังหวัด (ต้องพิมพ์แล้วลบก่อน) — เปลี่ยนมาใช้
+            // ThaiAddressAutocompleteField (utils/thai_address.dart) ตัวเดียวกับที่
+            // หน้าอื่นใช้: เลือกจังหวัด → เลื่อนไปอำเภอ → ตำบลตามลำดับ
             Widget buildAutocompleteDropdown({
-              Key? key,
               required String hintText,
               required TextEditingController controller,
               required List<String> Function() optionsBuilder,
               void Function(String selected)? onSelected,
               bool enabled = true,
+              bool moveToNextField = true,
             }) {
-              return Autocomplete<String>(
-                key: key,
-                initialValue: TextEditingValue(text: controller.text),
-                optionsBuilder: (TextEditingValue value) {
-                  if (!enabled) return const Iterable<String>.empty();
-                  final options = optionsBuilder();
-                  final query = value.text.trim();
-                  if (query.isEmpty || query == controller.text.trim()) return options;
-                  return options.where((o) => o.contains(query));
-                },
-                displayStringForOption: (o) => o,
-                onSelected: (selection) {
-                  controller.text = selection;
-                  onSelected?.call(selection);
-                },
-                fieldViewBuilder: (context, fieldController, focusNode, onFieldSubmitted) {
-                  return TextField(
-                    controller: fieldController,
-                    focusNode: focusNode,
-                    enabled: enabled,
-                    style: const TextStyle(fontFamily: AppStyles.fontFamily),
-                    // 🎨 [แก้สไตล์] ใช้ AppStyles.inputDecoration แบบเดียวกับหน้า
-                    // ลงทะเบียน (register.dart) แทน InputDecoration + labelText
-                    // ลอย + OutlineInputBorder เดิม ให้ช่องจังหวัด/อำเภอ/ตำบล
-                    // ในหน้านี้มีรูปแบบตรงกับหน้าลงทะเบียน
-                    decoration: AppStyles.inputDecoration(
-                      hintText: enabled ? hintText : '$hintText (เลือกข้อมูลก่อนหน้าก่อน)',
-                      suffixIcon: fieldController.text.isNotEmpty && enabled
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 18, color: AppColors.textHint),
-                              onPressed: () {
-                                fieldController.clear();
-                                controller.clear();
-                                onSelected?.call('');
-                              },
-                            )
-                          : const Icon(Icons.arrow_drop_down, color: AppColors.textHint),
-                    ),
-                    onChanged: (value) {
-                      controller.text = value;
-                      onSelected?.call(value);
-                    },
-                  );
-                },
-                optionsViewBuilder: (context, onSelectedOption, options) {
-                  return Align(
-                    alignment: Alignment.topLeft,
-                    child: Material(
-                      elevation: 4,
-                      borderRadius: BorderRadius.circular(8),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 200, maxWidth: 320),
-                        child: ListView.builder(
-                          padding: EdgeInsets.zero,
-                          shrinkWrap: true,
-                          itemCount: options.length,
-                          itemBuilder: (context, index) {
-                            final option = options.elementAt(index);
-                            return ListTile(
-                              dense: true,
-                              title: Text(option, style: const TextStyle(fontFamily: AppStyles.fontFamily)),
-                              onTap: () => onSelectedOption(option),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  );
-                },
+              return ThaiAddressAutocompleteField(
+                labelText: hintText,
+                controller: controller,
+                optionsBuilder: optionsBuilder,
+                onSelected: onSelected,
+                enabled: enabled,
+                moveToNextField: moveToNextField,
               );
             }
 
@@ -508,7 +453,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       ),
                       const SizedBox(height: 12),
                       buildAutocompleteDropdown(
-                        key: ValueKey('changwat_${changwatCtrl.text}'),
                         hintText: 'จังหวัด',
                         controller: changwatCtrl,
                         optionsBuilder: getProvinceOptions,
@@ -523,7 +467,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       ),
                       const SizedBox(height: 12),
                       buildAutocompleteDropdown(
-                        key: ValueKey('amphoe_${changwatCtrl.text}_${amphoeCtrl.text}'),
                         hintText: 'อำเภอ / เขต',
                         controller: amphoeCtrl,
                         enabled: changwatCtrl.text.trim().isNotEmpty,
@@ -538,8 +481,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       ),
                       const SizedBox(height: 12),
                       buildAutocompleteDropdown(
-                        key: ValueKey('tambon_${changwatCtrl.text}_${amphoeCtrl.text}_${tambonCtrl.text}'),
                         hintText: 'ตำบล / แขวง',
+                        moveToNextField: false,
                         controller: tambonCtrl,
                         enabled: changwatCtrl.text.trim().isNotEmpty &&
                             amphoeCtrl.text.trim().isNotEmpty,

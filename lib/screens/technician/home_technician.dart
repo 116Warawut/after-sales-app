@@ -226,6 +226,13 @@ class _NextJobPageState extends State<NextJobPage> {
   String? _firstJobTimeToday;
   List<TodayJobItem> _todayJobs = [];
 
+  // 🐛 [แก้บัค] ถ้าช่างมีงานอยู่จริงแต่ปิดจบไปหมดแล้ว (ไม่มีงานค้างที่ยัง
+  // ไม่เสร็จเลยสักงาน) การ์ด "งานต่อไป" จะว่างเปล่าพร้อมข้อความกลาง ๆ
+  // "ไม่มีงานที่ต้องทำตอนนี้" ทำให้ดูเหมือนข้อมูลงานหายไปทั้งหมด ทั้งที่จริง
+  // มีประวัติงานเก่าอยู่ (แค่ปิดจบไปแล้ว) — เก็บสถานะนี้ไว้บอกใบ้ต่อว่ามีงาน
+  // เก่าอยู่ ให้ไปดูที่หน้า "งานทั้งหมด" (แท็บ "เสร็จสิ้น") แทน
+  bool _hasAnyAssignedJobs = false;
+
   /// แจ้งเตือนเรื่องคำขอเบิกอะไหล่ที่ยังไม่อ่าน (เช่น แอดมินเพิ่งอนุมัติ/ปฏิเสธ)
   /// โชว์เป็นวงกลมแดงบนปุ่มลัด "เบิกอะไหล่"
   int _unreadPartRequestUpdates = 0;
@@ -349,6 +356,7 @@ class _NextJobPageState extends State<NextJobPage> {
       setState(() {
         _job = job;
         _unreadPartRequestUpdates = unreadPartUpdates;
+        _hasAnyAssignedJobs = rows.isNotEmpty;
         _techName = (techName != null && techName.isNotEmpty)
             ? techName
             : db.Session.currentUsername;
@@ -479,9 +487,11 @@ class _NextJobPageState extends State<NextJobPage> {
         const HomeSectionHeader('งานต่อไป'),
         const SizedBox(height: 12),
         if (job == null)
-          const HomeEmptyState(
+          HomeEmptyState(
             icon: Icons.check_circle_outline,
-            message: 'ไม่มีงานที่ต้องทำตอนนี้',
+            message: _hasAnyAssignedJobs
+                ? 'ไม่มีงานค้างตอนนี้ — งานก่อนหน้าเสร็จสิ้นหมดแล้ว\nดูประวัติได้ที่หน้า "งานทั้งหมด"'
+                : 'ไม่มีงานที่ต้องทำตอนนี้',
           )
         else
           HomeHighlightCard(

@@ -117,6 +117,19 @@ String getEffectiveRepairStatus(Map<String, dynamic> repair) {
       }
       return 'รอดำเนินการ';
     case DateComparison.past:
+      // 🐛 [แก้บัค] เดิมวันนัดที่ผ่านไปแล้วคืน 'เกินกำหนดเวลา' เสมอ แม้ช่างจะกด
+      // เริ่มเดินทาง/ถึงที่หมายไปแล้ว (status จริงใน DB เป็น 'กำลังเดินทาง'/
+      // 'กำลังซ่อม') — เพราะ _byId()/_all() เอาค่านี้ไปเขียนทับ row['status'] ทุกครั้งที่
+      // อ่าน ทำให้งานเลยกำหนดกด "เริ่มดำเนินการ" แล้วสถานะยังเด้งกลับเป็น
+      // 'เกินกำหนดเวลา' ตลอด (หน้าช่างค้างที่ปุ่มเริ่มงาน) และ markTechnicianArrived()
+      // โยน error "ยังไม่อยู่ในสถานะ กำลังเดินทาง" ทำให้ไปต่อไม่ได้ — ให้คงสถานะที่
+      // ช่างเริ่มลงมือแล้วไว้เหมือนกรณีวันนี้ และใช้ 'เกินกำหนดเวลา' เฉพาะงานที่ยังไม่
+      // ได้เริ่มเท่านั้น
+      if (rawStatus == 'กำลังเดินทาง' ||
+          rawStatus == 'กำลังดำเนินการ' ||
+          rawStatus == 'กำลังซ่อม') {
+        return rawStatus;
+      }
       return 'เกินกำหนดเวลา';
   }
 }
@@ -1765,6 +1778,18 @@ class DatabaseHelper {
         (r) =>
             r['repair_id']?.toString() == repairId?.toString() &&
             r['status'] == 'อนุมัติแล้ว',
+        desc: true,
+      );
+
+  /// 🆕 [ใหม่] คำขอเบิกอะไหล่ "ทุกสถานะ" ของงานซ่อมนี้ — ใช้เช็คว่ายังมีคำขอที่
+  /// รอดำเนินการ (แอดมินยังไม่อนุมัติ/ปฏิเสธ) ค้างอยู่หรือไม่ ก่อนอนุญาตให้
+  /// ออกบิล (ดู _canIssueInvoice ใน assign_repair_formdetail.dart) — ต่างจาก
+  /// getApprovedPartRequestsForRepair() ด้านบนที่กรองเอาเฉพาะที่อนุมัติแล้ว
+  Future<List<Map<String, dynamic>>> getPartRequestsForRepair(
+          dynamic repairId) =>
+      _where(
+        'part_requests',
+        (r) => r['repair_id']?.toString() == repairId?.toString(),
         desc: true,
       );
 

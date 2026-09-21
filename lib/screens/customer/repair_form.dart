@@ -12,6 +12,7 @@ import 'package:after_sales/screens/customer/machine_models.dart';
 import 'package:after_sales/screens/shared/qr_scanner_page.dart';
 import 'package:after_sales/screens/shared/location_picker_page.dart';
 import 'package:after_sales/utils/serial_number.dart';
+import 'package:after_sales/utils/thai_address.dart';
 
 class _ThaiTambon {
   final String name;
@@ -523,8 +524,14 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     }
   }
 
+  // 🐛 [แก้บัค] เดิมช่องจังหวัด/อำเภอ/ตำบลใช้ Autocomplete ของตัวเอง โดยผูก
+  // ValueKey กับข้อความในช่อง + เรียก onSelected (ซึ่ง setState และล้างอำเภอ/
+  // ตำบล) ทุกครั้งที่พิมพ์/ลบตัวอักษร ทำให้ key เปลี่ยนทุกตัวอักษร → widget ถูก
+  // สร้างใหม่ → เสียโฟกัส/คีย์บอร์ดเด้ง ลบได้ทีละตัวแล้วหลุด และอำเภอ/ตำบลถูก
+  // ล้างทิ้ง จึงเปลี่ยนมาใช้ ThaiAddressAutocompleteField (utils/thai_address.dart)
+  // ตัวเดียวกับหน้าอื่น ๆ ที่แก้ปัญหานี้ไปแล้ว: onSelected จะถูกเรียกเฉพาะตอน
+  // "เลือกรายการ" หรือกดปุ่ม ✕ เท่านั้น ไม่ถูกเรียกระหว่างพิมพ์/ลบ
   Widget _buildAutocompleteField({
-    Key? fieldKey,
     required String labelText,
     required String hintText,
     required TextEditingController controller,
@@ -532,76 +539,16 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
     void Function(String selected)? onSelected,
     String? Function(String?)? validator,
     bool enabled = true,
+    bool moveToNextField = true,
   }) {
-    return Autocomplete<String>(
-      key: fieldKey,
-      initialValue: TextEditingValue(text: controller.text),
-      optionsBuilder: (TextEditingValue value) {
-        if (!enabled) return const Iterable<String>.empty();
-        final options = optionsBuilder();
-        final query = value.text.trim();
-        if (query.isEmpty || query == controller.text.trim()) return options;
-        return options.where((o) => o.contains(query));
-      },
-      displayStringForOption: (o) => o,
-      onSelected: (selection) {
-        controller.text = selection;
-        onSelected?.call(selection);
-      },
-      fieldViewBuilder: (context, fieldController, focusNode, onFieldSubmitted) {
-        return TextFormField(
-          controller: fieldController,
-          focusNode: focusNode,
-          enabled: enabled,
-          style: const TextStyle(fontFamily: AppStyles.fontFamily),
-          // 🎨 [แก้สไตล์] ใช้ AppStyles.inputDecoration แบบเดียวกับหน้าลงทะเบียน
-          // (register.dart) แทน InputDecoration + OutlineInputBorder + labelText
-          // เดิม ให้ช่องจังหวัด/อำเภอ/ตำบลในหน้านี้มีรูปแบบตรงกับหน้าลงทะเบียน
-          decoration: AppStyles.inputDecoration(
-            hintText: enabled ? hintText : '$hintText (เลือกข้อมูลก่อนหน้าก่อน)',
-            suffixIcon: fieldController.text.isNotEmpty && enabled
-                ? IconButton(
-                    icon: const Icon(Icons.clear, size: 18, color: AppColors.textHint),
-                    onPressed: () {
-                      fieldController.clear();
-                      controller.clear();
-                      onSelected?.call('');
-                    },
-                  )
-                : const Icon(Icons.arrow_drop_down, color: AppColors.textHint),
-          ),
-          validator: validator,
-          onChanged: (value) {
-            controller.text = value;
-            onSelected?.call(value);
-          },
-        );
-      },
-      optionsViewBuilder: (context, onSelectedOption, options) {
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Material(
-            elevation: 4,
-            borderRadius: BorderRadius.circular(8),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 220, maxWidth: 320),
-              child: ListView.builder(
-                padding: EdgeInsets.zero,
-                shrinkWrap: true,
-                itemCount: options.length,
-                itemBuilder: (context, index) {
-                  final option = options.elementAt(index);
-                  return ListTile(
-                    dense: true,
-                    title: Text(option, style: const TextStyle(fontFamily: AppStyles.fontFamily)),
-                    onTap: () => onSelectedOption(option),
-                  );
-                },
-              ),
-            ),
-          ),
-        );
-      },
+    return ThaiAddressAutocompleteField(
+      labelText: hintText,
+      controller: controller,
+      optionsBuilder: optionsBuilder,
+      onSelected: onSelected,
+      enabled: enabled,
+      validator: validator,
+      moveToNextField: moveToNextField,
     );
   }
 
@@ -726,7 +673,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             const SizedBox(height: 16),
 
                             _buildAutocompleteField(
-                              fieldKey: ValueKey('changwat_${_changwatController.text}'),
                               labelText: 'จังหวัด *',
                               hintText: 'เลือกจังหวัด',
                               controller: _changwatController,
@@ -744,7 +690,6 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             const SizedBox(height: 16),
 
                             _buildAutocompleteField(
-                              fieldKey: ValueKey('amphoe_${_changwatController.text}_${_amphoeController.text}'),
                               labelText: 'อำเภอ / เขต *',
                               hintText: 'เลือกอำเภอ / เขต',
                               controller: _amphoeController,
@@ -762,9 +707,9 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             const SizedBox(height: 16),
 
                             _buildAutocompleteField(
-                              fieldKey: ValueKey('tambon_${_changwatController.text}_${_amphoeController.text}_${_tambonController.text}'),
                               labelText: 'ตำบล / แขวง *',
                               hintText: 'เลือกตำบล / แขวง',
+                              moveToNextField: false,
                               controller: _tambonController,
                               enabled: _changwatController.text.trim().isNotEmpty &&
                                   _amphoeController.text.trim().isNotEmpty,

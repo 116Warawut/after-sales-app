@@ -161,6 +161,12 @@ class Ticket {
   // ฝั่ง backend อย่างเดียว เพราะ trigger อาจไม่ทันเซ็ตค่าให้ทุกเคส) ให้
   // สอดคล้องกับเงื่อนไข isDoneJob ใน customer_job_detail.dart
   final bool needsRating;
+  // 🆕 [ใหม่] เวลาที่ปิดงานจริง (จาก report_submitted_at ตอนช่างส่งรายงานซ่อม
+  // ซึ่งเป็นจุดเดียวที่ตั้งสถานะ 'เสร็จแล้ว' — ดู submitRepairReport() ใน
+  // services.dart) แยกออกจาก [date] ซึ่งเป็น "วันนัดหมาย" เดิมของงาน ไม่ใช่
+  // วันที่ปิดงานจริง — จำเป็นสำหรับแยกแยะ "งานเสร็จวันนี้" ให้ถูกต้องตอนที่
+  // งานนั้นนัดไว้วันอื่นแต่เพิ่งมาปิดจบวันนี้ (งานเลยกำหนด)
+  final DateTime? completedAt;
 
   const Ticket({
     this.id,
@@ -172,6 +178,7 @@ class Ticket {
     required this.date,
     this.isUrgent = false, // ⭐ [เพิ่มใหม่]
     this.needsRating = false, // ⭐ [เพิ่มใหม่]
+    this.completedAt, // 🆕 [ใหม่]
   });
 
   factory Ticket.fromMap(Map<String, dynamic> map) {
@@ -184,6 +191,14 @@ class Ticket {
     final detail = (map['detail']?.toString()) ?? '';
     final isSevere = detail.contains('[ความรุนแรง: เร่งด่วน]');
     final isAdminUrgent = map['is_urgent'] == true || map['is_urgent'] == 1;
+
+    // 🆕 [ใหม่] เวลาปิดงานจริง — ใช้ report_submitted_at เป็นหลัก (เซ็ตตอน
+    // ช่างส่งรายงานซ่อมพร้อมเปลี่ยนสถานะเป็น 'เสร็จแล้ว' จุดเดียว) ถ้าไม่มี
+    // (ข้อมูลเก่าก่อนมีฟิลด์นี้) fallback ไปที่ updated_at แทน
+    final completedAtStr =
+        (map['report_submitted_at'] ?? map['updated_at'])?.toString();
+    final completedAt =
+        completedAtStr != null ? DateTime.tryParse(completedAtStr) : null;
 
     return Ticket(
       // 🐛 [แก้บัค] เดิมอ่าน map['id'] ตรง ๆ ซึ่งอาจไม่ตรงกับคีย์จริงใน Firebase
@@ -203,6 +218,7 @@ class Ticket {
       needsRating: (rawStatus ?? '').contains('เสร็จ') &&
           map['rating_stars'] == null &&
           map['rating'] == null,
+      completedAt: completedAt, // 🆕 [ใหม่]
     );
   }
 }

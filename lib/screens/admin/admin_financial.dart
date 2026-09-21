@@ -8,6 +8,22 @@ import 'package:after_sales/utils/firebase_number.dart';
 
 /// ใบแจ้งหนี้ — แปลงจาก row จริงของตาราง `repairs` ที่มีการออกบิลแล้ว
 /// (มี bill_id ไม่ว่าง)
+/// 🐛[แก้บัค] วันที่ออกบิล — แอปเก็บใน `invoice_date` แต่บิลที่ออกจากเว็บเก็บไว้ใน
+/// `invoiced_at` (เดิมแอปไม่อ่านฟิลด์นี้ เลยโชว์วันที่แจ้งซ่อมแทน) อ่านทั้งสองฟิลด์แล้ว
+/// แปลงเป็นรูปแบบ d/M/ปี พ.ศ. ให้ตรงกับที่แอปใช้ทั่วไป (เช่น repair_form.dart)
+/// คืน null ถ้าไม่มีทั้งสองฟิลด์
+String? _resolveInvoiceDate(Map<String, dynamic> map) {
+  for (final key in const ['invoice_date', 'invoiced_at']) {
+    final raw = map[key]?.toString().trim();
+    if (raw == null || raw.isEmpty) continue;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final d = parsed.toLocal();
+    return '${d.day}/${d.month}/${d.year + 543}';
+  }
+  return null;
+}
+
 class Invoice {
   final int repairId;
   final String id;
@@ -33,10 +49,8 @@ class Invoice {
       // ใช้ resolveRecordId() ที่ยึดคีย์จริงเป็นหลักแทน (ดูเหตุผลใน
       // utils/firebase_number.dart)
       repairId: resolveRecordId(map) ?? 0,
-      id: (map['bill_id']?.toString()) ?? '-',
-      date: (map['invoice_date']?.toString()) ??
-          (map['date']?.toString()) ??
-          '-',
+      id: resolveBillId(map) ?? '-', // 🐛 fallback invoice_no (บิลจากเว็บ)
+      date: _resolveInvoiceDate(map) ?? (map['date']?.toString()) ?? '-',
       amount: toDoubleOrNull(map['total_price']) ?? 0,
       isWarrantyCovered:
           map['is_warranty_covered'] == true || map['is_warranty_covered'] == 1,
@@ -66,9 +80,7 @@ class _FinancialScreenState extends State<FinancialScreen> {
     try {
       final rows = await db.DatabaseHelper.instance.getAllRepairs();
       final invoices = rows
-          .where((r) =>
-              r['bill_id'] != null &&
-              r['bill_id'].toString().trim().isNotEmpty)
+          .where((r) => resolveBillId(r) != null)
           .map((r) => Invoice.fromMap(r))
           .toList();
       if (!mounted) return;
