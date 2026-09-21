@@ -171,6 +171,9 @@ class _MachineListPageState extends State<MachineListPage> {
                           decoration: const InputDecoration(
                             isDense: true,
                             border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
                             hintText: 'ค้นหา S/N หรือชื่อรุ่น...',
                             hintStyle: TextStyle(
                               color: Colors.black45,

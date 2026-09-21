@@ -393,6 +393,9 @@ class _RepairListAdminPageState extends State<RepairListAdminPage> {
                               )
                             : null,
                         border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
                         contentPadding:
                             const EdgeInsets.symmetric(vertical: 12),
                       ),

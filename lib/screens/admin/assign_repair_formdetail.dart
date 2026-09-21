@@ -3,6 +3,7 @@
 // ==========================================
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/screens/admin/admin_create_invoice.dart';
 import 'package:after_sales/services.dart';
@@ -465,14 +466,227 @@ class _AssignRepairFormDetailPageState
 
   Future<void> _pickAppointmentTime() async {
     final initial = _appointmentTime ?? const TimeOfDay(hour: 9, minute: 0);
-
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: initial,
-      helpText: 'เลือกเวลานัดหมาย',
-      cancelText: 'ยกเลิก',
-      confirmText: 'ตกลง',
+    final now = DateTime.now();
+    DateTime tempPicked = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      initial.hour,
+      initial.minute,
     );
+
+    bool useKeyboardInput = false;
+    final hourController = TextEditingController(
+      text: initial.hour.toString().padLeft(2, '0'),
+    );
+    final minuteController = TextEditingController(
+      text: initial.minute.toString().padLeft(2, '0'),
+    );
+
+    int clamp(int value, int min, int max) =>
+        value < min ? min : (value > max ? max : value);
+
+    final picked = await showModalBottomSheet<TimeOfDay>(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            void syncTempFromFields() {
+              final h = clamp(int.tryParse(hourController.text) ?? 0, 0, 23);
+              final m = clamp(
+                int.tryParse(minuteController.text) ?? 0,
+                0,
+                59,
+              );
+              tempPicked = DateTime(now.year, now.month, now.day, h, m);
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            child: const Text(
+                              'ยกเลิก',
+                              style: TextStyle(color: AppColors.textSubtitle),
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              const Text(
+                                'เลือกเวลานัดหมาย',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textHeading,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: useKeyboardInput
+                                    ? 'สลับเป็นเลื่อนเวลา'
+                                    : 'สลับเป็นพิมพ์เวลา',
+                                icon: Icon(
+                                  useKeyboardInput
+                                      ? Icons.schedule
+                                      : Icons.keyboard,
+                                  color: AppColors.primary,
+                                  size: 20,
+                                ),
+                                onPressed: () {
+                                  if (!useKeyboardInput) {
+                                    // switching TO keyboard: seed fields from wheel
+                                    hourController.text = tempPicked.hour
+                                        .toString()
+                                        .padLeft(2, '0');
+                                    minuteController.text = tempPicked.minute
+                                        .toString()
+                                        .padLeft(2, '0');
+                                  } else {
+                                    // switching TO wheel: seed wheel from fields
+                                    syncTempFromFields();
+                                  }
+                                  setSheetState(
+                                    () =>
+                                        useKeyboardInput = !useKeyboardInput,
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              if (useKeyboardInput) {
+                                syncTempFromFields();
+                              }
+                              Navigator.pop(
+                                sheetContext,
+                                TimeOfDay(
+                                  hour: tempPicked.hour,
+                                  minute: tempPicked.minute,
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'ตกลง',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    if (useKeyboardInput)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 32),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 70,
+                              child: TextField(
+                                controller: hourController,
+                                autofocus: true,
+                                keyboardType: TextInputType.number,
+                                maxLength: 2,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textHeading,
+                                ),
+                                decoration: const InputDecoration(
+                                  counterText: '',
+                                  hintText: 'ชม.',
+                                  border: OutlineInputBorder(),
+                                ),
+                                onChanged: (_) => syncTempFromFields(),
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(
+                                ':',
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 70,
+                              child: TextField(
+                                controller: minuteController,
+                                keyboardType: TextInputType.number,
+                                maxLength: 2,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textHeading,
+                                ),
+                                decoration: const InputDecoration(
+                                  counterText: '',
+                                  hintText: 'นาที',
+                                  border: OutlineInputBorder(),
+                                ),
+                                onChanged: (_) => syncTempFromFields(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      SizedBox(
+                        height: 220,
+                        child: CupertinoTheme(
+                          data: const CupertinoThemeData(
+                            textTheme: CupertinoTextThemeData(
+                              dateTimePickerTextStyle: TextStyle(
+                                fontSize: 20,
+                                color: AppColors.textHeading,
+                              ),
+                            ),
+                          ),
+                          child: CupertinoDatePicker(
+                            mode: CupertinoDatePickerMode.time,
+                            initialDateTime: tempPicked,
+                            use24hFormat: true,
+                            minuteInterval: 1,
+                            onDateTimeChanged: (value) => tempPicked = value,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    hourController.dispose();
+    minuteController.dispose();
 
     if (picked != null && mounted) {
       setState(() => _appointmentTime = picked);
@@ -726,7 +940,12 @@ class _AssignRepairFormDetailPageState
                           children: [
                             _JobInfoCard(
                               job: _job!,
-                              onMap: _openTrackingMap,
+                              // 🔒 งานเสร็จสิ้นแล้ว = ช่างเลิกแชร์ตำแหน่งแล้ว
+                              // เปิดแผนที่ต่อจะเจอ Firebase permission denied
+                              // จึงปิดปุ่มไปเลยแทนที่จะให้กดแล้วเจอ error
+                              onMap: _job!.status == RepairStatus.completed
+                                  ? null
+                                  : _openTrackingMap,
                               onCall: () =>
                                   _makePhoneCall(_job!.customerPhone),
                               onImageTap: (path) =>
@@ -871,7 +1090,7 @@ class _InfoRow extends StatelessWidget {
 
 class _JobInfoCard extends StatelessWidget {
   final AdminJobInfo job;
-  final VoidCallback onMap;
+  final VoidCallback? onMap;
   final VoidCallback onCall;
   final ValueChanged<String> onImageTap;
 

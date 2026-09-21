@@ -635,12 +635,23 @@ class _JobDetailPageState extends State<JobDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDoneJob = _job.status.contains('เสร็จ') ||
+        _job.status.toLowerCase().contains('done') ||
+        _job.status.toLowerCase().contains('complete');
+
+    // 🔒 งานเสร็จสิ้นแล้ว = เลิกแชร์ตำแหน่งแล้ว เปิดแผนที่ต่อจะเจอ
+    // Firebase permission denied จึงปิดปุ่มไปเลยแทนที่จะให้กดแล้วเจอ error
+    final bool canViewMap = !isDoneJob;
+
     return JobDetailScaffold(
       header: const AppHeader(title: 'รายละเอียดงาน', showBack: true),
       isLoading: _loading,
       onRefresh: _loadJob,
       children: [
-        _JobInfoCard(job: _job, onMap: _openMap),
+        _JobInfoCard(
+          job: _job,
+          onMap: canViewMap ? _openMap : null,
+        ),
         JobContactCard(
           title: 'แอดมิน',
           roleLabel: 'แอดมินผู้ดูแล',
@@ -677,7 +688,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
 
 class _JobInfoCard extends StatelessWidget {
   final CustomerJobInfo job;
-  final VoidCallback onMap;
+  final VoidCallback? onMap;
   const _JobInfoCard({required this.job, required this.onMap});
 
   @override
