@@ -179,7 +179,20 @@ function AuthenticatedShell({
   }, [repairs, isMain, admin?.username]);
 
   const allowedRepairIds = useMemo(() => {
-    return new Set(visibleRepairs.map((r) => String(r.id ?? r.record_id ?? "")));
+    // 🐛 [แก้ mismatch] Flutter บันทึก part_requests.repair_id เป็นเลข id ดิบ (เช่น 37)
+    // แต่ r.id ฝั่งเว็บคือ Firebase key (k37) จึงต้องใส่ทั้งสองรูปแบบ (มี/ไม่มี k นำหน้า)
+    // ให้ตรงกับ myChatRepairIds ไม่งั้นแอดมินทั่วไปมองไม่เห็นคำขอเบิกอะไหล่ของงานตัวเอง
+    const s = new Set();
+    visibleRepairs.forEach((r) => {
+      [r.id, r.record_id].forEach((v) => {
+        if (v == null) return;
+        const str = String(v).trim();
+        if (!str) return;
+        s.add(str);
+        s.add(str.replace(/^[kK]/, ""));
+      });
+    });
+    return s;
   }, [visibleRepairs]);
 
   const visiblePartRequests = useMemo(() => {

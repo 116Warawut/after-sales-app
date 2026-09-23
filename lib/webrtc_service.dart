@@ -194,11 +194,21 @@ class WebRtcService {
     // 🍎 [กันบั๊ก iOS] firebase_database ฝั่ง iOS บางครั้งคืน snapshot ของ node
     // แม่ ('calls') กลับมาแทน node ลูกที่ขอ ('calls/$callId') ถ้าเจอกรณีนั้นให้
     // เจาะลงไปที่ callId เองอีกชั้น (ดูคำอธิบายเต็มใน services.dart _byId)
+    if (snap.value is! Map) {
+      throw Exception('สายนี้ถูกยกเลิกแล้ว');
+    }
     var callData = Map<String, dynamic>.from(snap.value as Map);
     if (!callData.containsKey('offer') && callData[callId] is Map) {
       callData = Map<String, dynamic>.from(callData[callId] as Map);
     }
-    final offerData = Map<String, dynamic>.from(callData['offer'] as Map);
+    // 🍎 [กัน crash iOS] ถ้า offer ยังไม่ถูกเขียน (ผู้โทรเขียนไม่เสร็จ/สายถูกยกเลิก
+    // กลางคัน) callData['offer'] จะเป็น null — เดิม cast `as Map` ตรง ๆ ทำให้ crash
+    // ทันที เปลี่ยนมาเช็กชนิดก่อนแล้วโยน error ที่ caller จัดการได้แทน
+    final rawOffer = callData['offer'];
+    if (rawOffer is! Map) {
+      throw Exception('สายนี้ยังไม่พร้อมหรือถูกยกเลิกแล้ว');
+    }
+    final offerData = Map<String, dynamic>.from(rawOffer);
 
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': {

@@ -1,5 +1,6 @@
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/screens/customer/customer_job_detail.dart';
+import 'package:after_sales/screens/customer/machine_qr_sheet.dart';
 import 'package:after_sales/screens/customer/repair_form.dart';
 import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/utils/firebase_number.dart';
@@ -32,14 +33,20 @@ class _MachineDetailPageState extends State<MachineDetailPage> {
 
   /// 🔄 ดึงประวัติการซ่อมทั้งหมดของเครื่องนี้ (ทุกสถานะ)
   Future<void> _loadRepairHistory() async {
-    if (machine.id == null) {
+    // 🔧 [แก้ mismatch] เครื่องที่แอดมินเพิ่มผ่านเว็บมี id เป็น push-key (string) ฝั่ง
+    // แอปแปลงเป็น int ไม่ได้ (machine.id = null) จึง fallback ไปจับคู่ด้วย serial_number
+    final serial = machine.serialNumber.trim();
+    final hasSerial = serial.isNotEmpty && serial != '-';
+    if (machine.id == null && !hasSerial) {
       setState(() => _loadingHistory = false);
       return;
     }
     setState(() => _loadingHistory = true);
     try {
-      final rows =
-          await db.DatabaseHelper.instance.getRepairsByMachine(machine.id!);
+      final rows = await db.DatabaseHelper.instance.getRepairsForMachine(
+        machineId: machine.id,
+        serialNumber: machine.serialNumber,
+      );
       if (!mounted) return;
       setState(() {
         _repairHistory = rows;
@@ -65,6 +72,17 @@ class _MachineDetailPageState extends State<MachineDetailPage> {
     if (submitted == true && mounted) {
       _loadRepairHistory();
     }
+  }
+
+  /// 🆕 [ใหม่] เปิด bottom sheet แสดง QR Code ที่เข้ารหัสหมายเลข Serial Number
+  /// ของเครื่องจักรนี้ (ใช้คู่กับหน้าสแกน QR ที่มีอยู่แล้ว) — พิมพ์แปะเครื่องได้
+  void _showQrSheet() {
+    showMachineQrSheet(
+      context,
+      serialNumber: machine.serialNumber,
+      modelName: machine.modelName,
+      label: machine.label,
+    );
   }
 
   @override
@@ -167,6 +185,30 @@ class _MachineDetailPageState extends State<MachineDetailPage> {
                         children: [
                           _InfoCard(
                             title: 'ข้อมูลเครื่องจักร',
+                            trailing: InkWell(
+                              onTap: _showQrSheet,
+                              borderRadius: BorderRadius.circular(20),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 2),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.qr_code_2,
+                                        size: 16, color: AppColors.primary),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'แสดง QR',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                             child: Column(
                               children: [
                                 _FieldRow(
@@ -559,8 +601,9 @@ class _StatusStyle {
 class _InfoCard extends StatelessWidget {
   final String title;
   final Widget child;
+  final Widget? trailing;
 
-  const _InfoCard({required this.title, required this.child});
+  const _InfoCard({required this.title, required this.child, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -596,14 +639,21 @@ class _InfoCard extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: AppColors.surface,
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.65,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.65,
+                    ),
+                  ),
+                ),
+                if (trailing != null) trailing!,
+              ],
             ),
           ),
           child,

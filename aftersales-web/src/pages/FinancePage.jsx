@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Wallet, CheckCircle2, Clock, Check, Plus, FileText, Printer, Receipt, Trash2, ShieldCheck } from "lucide-react";
 import { Card, EmptyState, PrimaryButton, Modal, Pagination } from "../components/ui";
 import { COLORS, formatDateBySetting, displayStoredDate } from "../shared/constants";
+import { addMonthsClamped } from "../shared/constants";
 import useDbList from "../hooks/useDbList";
 import useWebSettings from "../hooks/useWebSettings";
 import { updateRow, logActivity, nextInvoiceNumber, getWebSettings } from "../services/firebaseDb";
@@ -78,8 +79,7 @@ function getMachineWarrantyInfo(machine) {
   }
   const start = new Date(machine.warranty_start_date);
   if (isNaN(start.getTime())) return { active: false, statusText: null };
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + Number(machine.warranty_months));
+  const end = addMonthsClamped(start, Number(machine.warranty_months));
   const msPerDay = 1000 * 60 * 60 * 24;
   const today = new Date();
   const daysLeft = Math.round(

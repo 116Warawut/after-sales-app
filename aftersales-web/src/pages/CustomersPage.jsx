@@ -21,6 +21,7 @@ import {
   isValidSerialNumber,
   SERIAL_NUMBER_FORMAT_ERROR,
 } from "../shared/constants";
+import { addMonthsClamped } from "../shared/constants";
 import useDbList from "../hooks/useDbList";
 import { addRow, updateRow, deleteRow, logActivity } from "../services/firebaseDb";
 import { getSessionAdmin } from "../services/session";
@@ -88,8 +89,7 @@ function warrantyStatus(m) {
   if (isNaN(start.getTime())) {
     return { label: "ไม่มีข้อมูลประกัน", color: "text-slate-400" };
   }
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + Number(m.warranty_months));
+  const end = addMonthsClamped(start, Number(m.warranty_months));
   const daysLeft = Math.ceil((end.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   if (daysLeft < 0) {
     return { label: `หมดประกันแล้ว (${formatDateBySetting(end)})`, color: "text-red-500" };

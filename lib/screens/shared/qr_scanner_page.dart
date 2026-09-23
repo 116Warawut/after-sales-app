@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'package:after_sales/app_styles.dart';
@@ -59,6 +60,10 @@ class _QrScannerPageState extends State<QrScannerPage> {
   // กันแจ้งเตือน "QR Code ไม่ตรงรูปแบบ" ซ้อนกันหลายอันตอนกล้องยังจับภาพต่อเนื่อง
   bool _showingInvalidMessage = false;
 
+  // 🆕 [ใหม่] เลือกรูปจากคลังภาพเครื่องมาอ่าน QR Code แทนการส่องกล้องสด
+  final ImagePicker _imagePicker = ImagePicker();
+  bool _isPickingImage = false;
+
   @override
   void dispose() {
     _controller.dispose();
@@ -67,8 +72,16 @@ class _QrScannerPageState extends State<QrScannerPage> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
+    _processBarcodes(capture.barcodes);
+  }
 
-    for (final barcode in capture.barcodes) {
+  // 🔁 [ใหม่] แยก logic ตรวจค่าที่อ่านได้ออกมาให้ใช้ร่วมกันได้ทั้งตอนสแกนสด
+  // จากกล้อง (_onDetect) และตอนเลือกรูปจากคลังภาพ (_pickFromGallery) — พฤติกรรม
+  // เดิมทุกอย่างเหมือนกัน แค่เปลี่ยนแหล่งที่มาของ barcode list เท่านั้น
+  void _processBarcodes(List<Barcode> barcodes) {
+    if (_handled) return;
+
+    for (final barcode in barcodes) {
       final rawValue = barcode.rawValue?.trim();
       if (rawValue == null || rawValue.isEmpty) continue;
 
@@ -79,7 +92,7 @@ class _QrScannerPageState extends State<QrScannerPage> {
         return;
       }
 
-      // 🔍 ตรวจว่า QR Code ที่สแกนได้นี้ "คือ" ค่าที่ต้องการจริงหรือไม่
+      // 🔍 ตรวจว่า QR Code ที่อ่านได้นี้ "คือ" ค่าที่ต้องการจริงหรือไม่
       // (เช่น เป็นหมายเลข Serial Number ตามรูปแบบที่กำหนด) ก่อนปิดหน้าสแกน
       final extracted = extractor(rawValue);
       if (extracted == null) {
@@ -90,6 +103,48 @@ class _QrScannerPageState extends State<QrScannerPage> {
       _handled = true;
       Navigator.of(context).pop(extracted);
       return;
+    }
+  }
+
+  // 🖼️ [ใหม่] เลือกรูปจากคลังภาพเครื่อง แล้วให้ mobile_scanner อ่าน QR Code
+  // ในรูปนั้นแทนการส่องกล้องสด — ใช้เมื่อ QR Code อยู่ในรูปที่มีอยู่แล้ว เช่น
+  // สกรีนช็อต หรือรูปที่แอดมิน/ลูกค้าถ่ายเก็บไว้ก่อนหน้า
+  Future<void> _pickFromGallery() async {
+    if (_isPickingImage || _handled) return;
+    setState(() => _isPickingImage = true);
+    try {
+      final picked =
+          await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (picked == null) return;
+
+      final capture = await _controller.analyzeImage(picked.path);
+      if (!mounted || _handled) return;
+
+      if (capture == null || capture.barcodes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'ไม่พบ QR Code ในรูปภาพนี้ ลองเลือกรูปอื่น',
+              style: TextStyle(fontFamily: AppStyles.fontFamily),
+            ),
+          ),
+        );
+        return;
+      }
+
+      _processBarcodes(capture.barcodes);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'อ่าน QR Code จากรูปภาพไม่สำเร็จ: $e',
+            style: const TextStyle(fontFamily: AppStyles.fontFamily),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isPickingImage = false);
     }
   }
 
@@ -210,6 +265,20 @@ class _QrScannerPageState extends State<QrScannerPage> {
         ),
         actions: [
           IconButton(
+            onPressed: _isPickingImage ? null : _pickFromGallery,
+            icon: _isPickingImage
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Icon(Icons.photo_library_outlined),
+            tooltip: 'เลือกรูปจากคลังภาพ',
+          ),
+          IconButton(
             onPressed: _enterManually,
             icon: const Icon(Icons.keyboard_outlined),
             tooltip: 'พิมพ์รหัสเอง',
@@ -265,6 +334,20 @@ class _QrScannerPageState extends State<QrScannerPage> {
                         label: const Text(
                           'ลองเปิดกล้องอีกครั้ง',
                           style: TextStyle(fontFamily: AppStyles.fontFamily),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed:
+                            _isPickingImage ? null : _pickFromGallery,
+                        icon: const Icon(Icons.photo_library_outlined,
+                            color: Colors.white70),
+                        label: const Text(
+                          'เลือกรูปจากคลังภาพแทน',
+                          style: TextStyle(
+                            fontFamily: AppStyles.fontFamily,
+                            color: Colors.white70,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 12),

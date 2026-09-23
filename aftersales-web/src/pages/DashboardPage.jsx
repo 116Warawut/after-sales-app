@@ -34,6 +34,7 @@ import {
   formatDateBySetting,
   displayStoredDate,
 } from "../shared/constants";
+import { addMonthsClamped } from "../shared/constants";
 import { Card, Modal, StarRating, DateField } from "../components/ui";
 import useDbList from "../hooks/useDbList";
 import useWebSettings from "../hooks/useWebSettings";
@@ -527,8 +528,7 @@ function WarrantyAlertCard({ machines, customers, onNavigate }) {
       if (!m.warranty_start_date || !m.warranty_months) return null;
       const start = new Date(m.warranty_start_date);
       if (isNaN(start.getTime())) return null;
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + Number(m.warranty_months));
+      const end = addMonthsClamped(start, Number(m.warranty_months));
       const daysLeft = Math.ceil((end.getTime() - now) / (1000 * 60 * 60 * 24));
       if (daysLeft > 30) return null;
       const customer = customers.find((c) => c.username === m.customer_username);
@@ -1762,9 +1762,18 @@ export default function DashboardPage({ onNavigate }) {
   const visiblePartRequests = useMemo(() => {
     if (!partRequests || !Array.isArray(partRequests)) return [];
     if (isMain) return partRequests;
-    const allowedRepairIds = new Set(
-      visibleRepairs.map((r) => String(r.id ?? r.record_id ?? ""))
-    );
+    // 🐛 [แก้ mismatch] ดูคำอธิบายเดียวกันใน App.jsx — ใส่ทั้งค่าที่มี/ไม่มี k นำหน้า
+    // กัน part_requests.repair_id (เลขดิบจากแอป) ไม่ตรงกับ r.id (Firebase key)
+    const allowedRepairIds = new Set();
+    visibleRepairs.forEach((r) => {
+      [r.id, r.record_id].forEach((v) => {
+        if (v == null) return;
+        const str = String(v).trim();
+        if (!str) return;
+        allowedRepairIds.add(str);
+        allowedRepairIds.add(str.replace(/^[kK]/, ""));
+      });
+    });
     return partRequests.filter(
       (pr) => !pr.repair_id || allowedRepairIds.has(String(pr.repair_id))
     );
@@ -1867,8 +1876,7 @@ export default function DashboardPage({ onNavigate }) {
         if (!m.warranty_start_date || !m.warranty_months) return;
         const start = new Date(m.warranty_start_date);
         if (isNaN(start.getTime())) return;
-        const end = new Date(start);
-        end.setMonth(end.getMonth() + Number(m.warranty_months));
+        const end = addMonthsClamped(start, Number(m.warranty_months));
         const daysLeft = Math.ceil((end.getTime() - now) / (1000 * 60 * 60 * 24));
         const isNearExpiry = daysLeft <= 30;
 

@@ -668,7 +668,8 @@ class DatabaseHelper {
     final account = await _findAccountByUsernameWithPassword(normalized);
     if (account == null) return null;
 
-    final role = account['role'] as String;
+    final role = account['role']?.toString() ?? '';
+    if (role.isEmpty) return null;
     final table = _tableForRole(role);
     final storedPassword = account['password']?.toString() ?? '';
     if (!_verifyPassword(password, storedPassword)) return null;
@@ -1002,6 +1003,32 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getRepairsByMachine(int machineId) =>
       _where('repairs', (r) => _toInt(r['machine_id']) == machineId,
           desc: true);
+
+  /// 🔧 [แก้ mismatch] ดึงประวัติซ่อมของเครื่องจักรโดยจับคู่ได้ทั้ง machine_id และ
+  /// serial_number — กันกรณีเครื่องที่แอดมินเพิ่มผ่านเว็บ ซึ่ง id เป็น push-key
+  /// (string) ทำให้ฝั่งแอปแปลงเป็น int ไม่ได้ (machine.id = null) แล้วงานซ่อมของ
+  /// เครื่องนั้นเก็บ machine_id เป็น null ทั้งที่มี serial_number อยู่
+  Future<List<Map<String, dynamic>>> getRepairsForMachine({
+    int? machineId,
+    String? serialNumber,
+  }) {
+    final serial = normalizeSerialNumber(serialNumber ?? '');
+    return _where(
+      'repairs',
+      (r) {
+        if (machineId != null && _toInt(r['machine_id']) == machineId) {
+          return true;
+        }
+        if (serial.isNotEmpty) {
+          final rowSerial =
+              normalizeSerialNumber(r['serial_number']?.toString() ?? '');
+          if (rowSerial == serial) return true;
+        }
+        return false;
+      },
+      desc: true,
+    );
+  }
 
   Future<List<Map<String, dynamic>>> getAllRepairs() async =>
       _sortById(await _all('repairs'), desc: true);
@@ -2047,40 +2074,17 @@ class DatabaseHelper {
 
     int id = 0;
 
-    // 🔴 รวมการแจ้งเตือนแชทของห้องเดียวกัน (target_id เดียวกัน) ที่ยังไม่อ่านให้เหลือรายการเดียวใน Firebase
+    // 🐛 [แก้ race + cross-platform] เดิมรวมแจ้งเตือนแชทด้วยการ _all() ทั้งตารางแล้ว
+    // ค่อยเขียน (read-modify-write ไม่ atomic) — ยิงข้อความรัว ๆ หรือหลายฝั่งพร้อมกัน
+    // ทำให้ dedup หลุดแล้วได้แจ้งเตือนซ้ำ เปลี่ยนมาใช้คีย์กำหนดเอง CHAT_{user}_{target}
+    // + set() ให้ทุก writer ชนที่ record เดียวกันเสมอ (คีย์เดียวกับฝั่งเว็บ
+    // firebaseDb.js createNotification จึงยุบข้ามแพลตฟอร์มด้วย) ตัด k นำหน้า target
+    // ออกให้ตรงกับที่เว็บส่ง Firebase key (k37) มา
     if (type == 'CHAT' && targetId.isNotEmpty) {
-      final allNotifs = await _all('notifications');
-      final matching = allNotifs.where((r) {
-        final u = r['user_username']?.toString().trim() ?? '';
-        final t = r['type']?.toString().trim().toUpperCase() ?? '';
-        final tid = r['target_id']?.toString().trim() ?? '';
-        final isRead = r['is_read'] == 1 || r['is_read'] == true;
-        return u == username && t == 'CHAT' && tid == targetId && !isRead;
-      }).toList();
-
-      if (matching.isNotEmpty) {
-        final first = matching.first;
-        final key = first['_fbKey']?.toString() ?? _k(first['id']);
-        if (key.isNotEmpty) {
-          await _root.child('notifications/$key').update({
-            'title': title,
-            'message': message,
-            'created_at': record['created_at'],
-            'is_read': 0,
-          });
-          id = _toInt(first['id']) ?? 0;
-        }
-
-        // ลบแถวแชทซ้ำอันอื่นออกทั้งหมด
-        for (var i = 1; i < matching.length; i++) {
-          final dupKey = matching[i]['_fbKey']?.toString() ?? _k(matching[i]['id']);
-          if (dupKey.isNotEmpty) {
-            await _root.child('notifications/$dupKey').remove();
-          }
-        }
-      } else {
-        id = await _insert('notifications', record);
-      }
+      final cleanTarget = targetId.replaceFirst(RegExp(r'^[kK]'), '');
+      final chatKey = 'CHAT_${username}_$cleanTarget';
+      record['id'] = chatKey;
+      await _root.child('notifications/$chatKey').set(record);
     } else {
       id = await _insert('notifications', record);
     }

@@ -289,6 +289,10 @@ export async function submitRepairReview(repairId, { rating, comment, techUserna
     rating_stars: Number(rating),
     rating_comment: comment || "",
     rated_at: now,
+    // 🐛 [แก้ mismatch] pin ช่างที่ทำงานนี้ ณ ตอนรีวิว เหมือนที่ฝั่งแอปทำแล้ว
+    // (customer_job_detail.dart) — ตัวรวมคะแนนทั้งสองฝั่งอ่านฟิลด์นี้ก่อน
+    // technician_username ถ้าไม่เขียนไว้ คะแนนจะย้ายไปติดช่างใหม่เมื่องานถูกโอนช่าง
+    ...(techUsername ? { rating_technician_username: techUsername } : {}),
   };
   await update(repairRef, reviewData);
   if (techUsername) {
@@ -347,6 +351,30 @@ export async function logActivity({ adminUsername, adminName, action, target }) 
 }
 
 export async function createNotification({ user_username, role, title, message, type = "GENERAL", target_id = null }) {
+  const now = new Date().toISOString();
+  const targetStr = target_id !== null ? String(target_id) : null;
+
+  // 🐛 [แก้ race + cross-platform] แจ้งเตือนแชทของห้องเดียวกัน (user+target เดียวกัน)
+  // ให้ยุบเหลือใบเดียวด้วยคีย์กำหนดเอง CHAT_{user}_{target} + set() ทับ แทนการ push()
+  // ใบใหม่ทุกครั้ง — คีย์เดียวกับฝั่งแอป (services.dart createNotification) จึงยุบ
+  // ข้ามแพลตฟอร์มด้วย และตัด k นำหน้า target ออกให้ตรงกับที่แอปส่งเลขดิบมา
+  if (type === "CHAT" && targetStr) {
+    const cleanTarget = targetStr.replace(/^[kK]/, "");
+    const chatKey = `CHAT_${user_username}_${cleanTarget}`;
+    await set(ref(db, `notifications/${chatKey}`), {
+      id: chatKey,
+      user_username,
+      role,
+      title,
+      message,
+      type,
+      target_id: targetStr,
+      is_read: 0,
+      created_at: now,
+    });
+    return;
+  }
+
   const notiRef = ref(db, "notifications");
   const newRef = push(notiRef);
   await set(newRef, {
@@ -356,9 +384,9 @@ export async function createNotification({ user_username, role, title, message, 
     title,
     message,
     type,
-    target_id: target_id !== null ? String(target_id) : null,
+    target_id: targetStr,
     is_read: 0,
-    created_at: new Date().toISOString(),
+    created_at: now,
   });
 }
 

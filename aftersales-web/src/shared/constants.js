@@ -351,3 +351,21 @@ export function normalizeSerialNumber(value) {
 export function isValidSerialNumber(value) {
   return SERIAL_NUMBER_PATTERN.test(normalizeSerialNumber(value));
 }
+
+// ---------------------------------------------------------------------------
+// 🗓️ [ใหม่] บวกจำนวนเดือนแบบ clamp วันปลายเดือน — ต้องให้ผลตรงกับฝั่งแอป
+// (machine_models.dart warrantyEndDate) เดิมทุกจุดใช้ Date.setMonth() ตรง ๆ ซึ่ง
+// overflow เมื่อวันเริ่มเป็น 29/30/31 แล้วเดือนปลายทางสั้นกว่า (เช่น 31 ม.ค. +1
+// เดือน กลายเป็น 3 มี.ค. แทน 28 ก.พ.) ทำให้วันหมดประกันฝั่งเว็บเพี้ยนจากฝั่งแอป
+// ได้หลายวัน — ฟังก์ชันนี้ clamp ให้เหลือวันสุดท้ายที่มีจริงของเดือนปลายทาง
+// ---------------------------------------------------------------------------
+export function addMonthsClamped(date, months) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return d;
+  const total = d.getMonth() + Number(months || 0);
+  const year = d.getFullYear() + Math.floor(total / 12);
+  const month = ((total % 12) + 12) % 12;
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const day = Math.min(d.getDate(), lastDay);
+  return new Date(year, month, day, d.getHours(), d.getMinutes(), d.getSeconds());
+}
