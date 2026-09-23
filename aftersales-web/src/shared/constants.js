@@ -311,6 +311,20 @@ export function displayStoredDate(dateStr) {
   return `${day} ${monthLabel} ${yearBE}`;
 }
 
+// 🆕 [ใหม่] ฟอร์แมตวันที่-เวลาแบบเต็ม (วัน เดือนย่อ ปี พ.ศ. เวลา ชม:นาที) จาก
+// ค่า ISO string เช่น report_submitted_at (วันที่ปิดงานจริง) — ย้ายมาไว้ที่นี่
+// จากที่เดิมประกาศแยกไว้ในตัว JobDetailModal.jsx เอง เพราะตอนนี้
+// RepairJobsPage.jsx (ตารางรายการ) ก็ต้องใช้ตัวเดียวกันด้วย กันสองที่ฟอร์แมต
+// ไม่ตรงกัน — ใช้ locale "th-TH" ให้ปี พ.ศ. เป็นค่าเริ่มต้นอยู่แล้ว (แพทเทิร์น
+// เดียวกับ formatDateTime() ใน ActivityLogPage.jsx)
+export function formatReportDateTime(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "-";
+  const opts = { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" };
+  return d.toLocaleString("th-TH", opts);
+}
+
 // ---------------------------------------------------------------------------
 // 🔢 [ใหม่] หมายเลข Serial Number ของเครื่องจักร — ต้องตรงกับกฎเดียวกับฝั่ง
 // มือถือเป๊ะๆ (lib/utils/serial_number.dart): โครงสร้าง 2-2-4 รวม 8 ตัวอักษร

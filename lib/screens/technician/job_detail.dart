@@ -166,6 +166,8 @@ class _JobDetailPageState extends State<JobDetailPage> {
           totalPrice: toDoubleOrNull(repair['total_price']) ?? 0,
           isPaid: toIntOrNull(repair['is_paid']) == 1 ||
               repair['is_paid'] == true,
+          completedAt: toStringOrNull(repair['report_submitted_at']) ??
+              toStringOrNull(repair['updated_at']),
         );
         _customerUsername = toStringOrNull(repair['customer_username']) ?? '';
         _adminUsername = toStringOrNull(repair['admin_username']) ?? '';
@@ -759,6 +761,13 @@ class _JobInfoCard extends StatelessWidget {
           JobInfoRow(label: 'ที่อยู่', value: job.address),
           // 🕒 แสดงผลเป็น "วัน-เวลานัดซ่อม"
           JobInfoRow(label: 'วัน-เวลานัดซ่อม', value: job.appointmentDate),
+          // 🆕 [ใหม่] โชว์วันที่งานเสร็จสิ้นจริง เฉพาะงานที่ปิดแล้ว (สถานะมีคำว่า
+          // "เสร็จ") — เส้นทางเดียวกับหน้าลูกค้า (customer_job_detail.dart)
+          if (job.status.contains('เสร็จ') && job.completedAt != null)
+            JobInfoRow(
+              label: 'วันที่เสร็จสิ้น',
+              value: formatNotificationDateTime(job.completedAt),
+            ),
           const SizedBox(height: 14),
           JobImageStrip(images: job.images),
           const SizedBox(height: 16),

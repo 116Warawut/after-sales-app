@@ -79,6 +79,12 @@ class CustomerJobInfo {
   final String? paymentSlipUrl;
   final int? ratingStars;
   final String? ratingComment;
+  // 🆕 [ใหม่] วันที่ปิดงานจริง (ตั้งตอนช่างส่งรายงานซ่อมพร้อมเปลี่ยนสถานะเป็น
+  // 'เสร็จแล้ว' — ดู submitRepairReport() ใน services.dart) แยกจาก
+  // appointmentDate ซึ่งเป็น "วันนัดหมาย" เดิม ไม่ใช่วันที่งานเสร็จจริง — ใช้
+  // เส้นทางเดียวกับ Ticket.completedAt ใน history_customer.dart (fallback ไป
+  // updated_at ถ้าไม่มี สำหรับข้อมูลเก่าก่อนมีฟิลด์นี้)
+  final String? completedAt;
 
   const CustomerJobInfo({
     this.id,
@@ -105,6 +111,7 @@ class CustomerJobInfo {
     this.paymentSlipUrl,
     this.ratingStars,
     this.ratingComment,
+    this.completedAt,
   });
 
   static const placeholder = CustomerJobInfo(
@@ -130,6 +137,7 @@ class CustomerJobInfo {
     paymentSlipUrl: null,
     ratingStars: null,
     ratingComment: null,
+    completedAt: null,
   );
 }
 
@@ -283,6 +291,8 @@ class _CustomerJobDetailPageState extends State<CustomerJobDetailPage> {
           paymentSlipUrl: paymentSlipUrl,
           ratingStars: ratingStars,
           ratingComment: ratingComment,
+          completedAt: _asString(repair['report_submitted_at']) ??
+              _asString(repair['updated_at']),
         );
         _paid = isPaid;
         _adminUsername = _asString(repair['admin_username']) ?? '';
@@ -539,6 +549,13 @@ class _JobInfoCard extends StatelessWidget {
           JobPhoneRow(phone: job.customerPhone),
           JobInfoRow(label: 'ที่อยู่', value: job.address),
           JobInfoRow(label: 'วัน-เวลานัดซ่อม', value: job.appointmentDate),
+          // 🆕 [ใหม่] โชว์วันที่งานเสร็จสิ้นจริง เฉพาะงานที่ปิดแล้ว (สถานะมีคำว่า
+          // "เสร็จ") — ไม่โชว์ทั้งแถวถ้าไม่ใช่งานที่เสร็จแล้ว หรือไม่มีข้อมูล
+          if (job.status.contains('เสร็จ') && job.completedAt != null)
+            JobInfoRow(
+              label: 'วันที่เสร็จสิ้น',
+              value: formatNotificationDateTime(job.completedAt),
+            ),
           const SizedBox(height: 14),
           JobImageStrip(images: job.images),
           const SizedBox(height: 16),

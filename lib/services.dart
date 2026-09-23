@@ -964,21 +964,39 @@ class DatabaseHelper {
     return await _insert('repairs', record);
   }
 
+  // 🆕 [ใหม่] เพิ่มเงื่อนไข r['hidden'] != true ให้ทั้ง 4 ฟังก์ชันนี้ —
+  // งานที่ปิด (สถานะมีคำว่า "เสร็จ") มาเกิน 3 วันแล้ว จะถูก Cloudflare Worker
+  // (cron รายวัน ดูรายละเอียดที่ cloudflare-worker/src/index.js — ฟังก์ชัน
+  // runChatCleanup) ตั้ง field 'hidden': true ให้ พร้อมกับลบห้องแชท
+  // (chat_messages/chat_read_status) ของงานนั้นทิ้งไปเลย ไม่ใช่ลบตัว record
+  // งานซ่อมทิ้ง เพื่อไม่ให้ข้อมูลใบแจ้งหนี้/การชำระเงินที่ผูกกับงานนั้นหายไป
+  // ถาวร — ให้แอดมินยังเห็นงานนี้ได้ปกติ (getAllRepairs()/watchAllRepairs()
+  // ไม่ได้กรอง hidden ออก) แต่ลูกค้า/ช่างเจ้าของงานจะไม่เห็นงานนี้อีกต่อไปในหน้า
+  // รายการของตัวเอง
   Future<List<Map<String, dynamic>>> getRepairsByCustomer(String username) =>
-      _where('repairs', (r) => r['customer_username'] == username, desc: true);
+      _where(
+          'repairs',
+          (r) => r['customer_username'] == username && r['hidden'] != true,
+          desc: true);
 
   Stream<List<Map<String, dynamic>>> watchRepairsByCustomer(
           String username) =>
-      _streamWhere('repairs', (r) => r['customer_username'] == username,
+      _streamWhere(
+          'repairs',
+          (r) => r['customer_username'] == username && r['hidden'] != true,
           desc: true);
 
   Future<List<Map<String, dynamic>>> getRepairsByTechnician(String username) =>
-      _where('repairs', (r) => r['technician_username'] == username,
+      _where(
+          'repairs',
+          (r) => r['technician_username'] == username && r['hidden'] != true,
           desc: true);
 
   Stream<List<Map<String, dynamic>>> watchRepairsByTechnician(
           String username) =>
-      _streamWhere('repairs', (r) => r['technician_username'] == username,
+      _streamWhere(
+          'repairs',
+          (r) => r['technician_username'] == username && r['hidden'] != true,
           desc: true);
 
   Future<List<Map<String, dynamic>>> getRepairsByMachine(int machineId) =>

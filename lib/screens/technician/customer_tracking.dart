@@ -244,8 +244,16 @@ class _CustomerTrackingPageState extends State<CustomerTrackingPage> {
       startLng = gpsResult.lng;
       // อัปเดตตำแหน่งล่าสุดของช่างลง DB ด้วย เผื่อหน้าอื่น (เช่นฝั่งลูกค้าดูตำแหน่งช่าง)
       // จะได้เห็นตำแหน่งล่าสุดเช่นกัน
-      await db.DatabaseHelper.instance
-          .updateTechnicianLocation(techUsername, startLat!, startLng!);
+      // 🛡️ [แก้ไข] เดิมไม่มี try/catch ครอบการเขียนนี้ไว้ — การเขียนตำแหน่งช่าง
+      // ต้องมีสิทธิ์ auth != null ตาม Database Rules ('technicians'.write) ถ้า
+      // Firebase Auth session หลุดไปพอดี (เช่นกรณี auto-login ที่แก้ไว้ใน
+      // main.dart) จะโดน permission-denied ตรงนี้ แล้วทำให้ทั้งหน้าแผนที่พัง
+      // ไปด้วย ทั้งที่การอัปเดตตำแหน่งช่างเป็นแค่ส่วนเสริม ไม่ใช่สาระสำคัญของ
+      // หน้านี้ (เหมือนแนวทางเดียวกับ markTechnicianTraveling ด้านบน)
+      try {
+        await db.DatabaseHelper.instance
+            .updateTechnicianLocation(techUsername, startLat!, startLng!);
+      } catch (_) {}
     } else {
       gpsWarning = gpsResult.errorMessage;
       final techRow = await db.DatabaseHelper.instance

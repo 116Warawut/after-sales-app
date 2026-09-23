@@ -5,6 +5,7 @@ import 'package:after_sales/screens/technician/job_detail.dart';
 import 'package:after_sales/screens/customer/history_customer.dart'
     as customer_history;
 import 'package:after_sales/services.dart' as db;
+import 'package:after_sales/widgets.dart' show formatNotificationDateTime;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -151,8 +152,15 @@ class _RepairListPageState extends State<RepairListPage> {
             // เคยเจอปัญหานี้มาก่อนแต่แก้ไม่ครบ) เปลี่ยนมาใช้ _TechnicianFilterHeader
             // ของหน้านี้เองแทน (แพทเทิร์นเดียวกับ _AdminFilterHeader /
             // _CustomerFilterHeader ในอีก 2 หน้า)
+            // 🐛 [แก้บัค] เดิม totalTickets ใช้ _tickets.length ตรง ๆ ซึ่งคือ
+            // "จำนวนงานทั้งหมดของช่างคนนี้ทุกสถานะ" ไม่ได้กรองตามแท็บที่เลือกอยู่
+            // เลย ทำให้ตัวเลขบนหัวข้อ ("X รายการทั้งหมด") ไม่ตรงกับจำนวนการ์ดที่
+            // เห็นจริงเวลาช่างกดเลือกแท็บอื่นที่ไม่ใช่ "ทั้งหมด" (เช่นแท็บ
+            // "เสร็จสิ้น" มีงานแค่ 2 ใบ แต่หัวข้อยังโชว์ 3 ซึ่งเป็นจำนวนรวมทุก
+            // สถานะ) — เปลี่ยนมาใช้ allFiltered.length (กรองตามแท็บ+คำค้นหาแล้ว)
+            // ให้ตรงกับจำนวนที่ปุ่ม "ดูทั้งหมด (X รายการ)" ด้านล่างใช้อยู่แล้ว
             _TechnicianFilterHeader(
-              totalTickets: _tickets.length,
+              totalTickets: allFiltered.length,
               selectedTab: _selectedTab,
               onBack: widget.onBack,
               onTabChanged: (tab) {
@@ -380,15 +388,23 @@ class _TicketCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(ticket.subStatusLabel,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: AppStyles.fontFamily,
+                        )),
+                    // 🆕 [ใหม่] งานที่เสร็จแล้วโชว์ "วันที่เสร็จสิ้น" จริงแทน
+                    // ticket.date (ซึ่งเป็นวันนัดหมายเดิม ไม่ใช่วันที่เสร็จจริง)
+                    // — ใช้ completedAt ที่ Ticket.fromMap() คำนวณไว้แล้วจาก
+                    // report_submitted_at/updated_at
                     Text(
-                      ticket.subStatusLabel,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        fontFamily: AppStyles.fontFamily,
-                      ),
+                      ticket.status == customer_history.TicketStatus.done &&
+                              ticket.completedAt != null
+                          ? 'เสร็จสิ้นเมื่อ ${formatNotificationDateTime(ticket.completedAt!.toIso8601String())}'
+                          : ticket.date,
+                      style: AppStyles.historyCardSubtitle,
                     ),
-                    Text(ticket.date, style: AppStyles.historyCardSubtitle),
                   ],
                 ),
               ),

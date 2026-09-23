@@ -3,6 +3,12 @@ main = "src/index.js"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
+# ⏰ [ใหม่] รัน runChatCleanup() อัตโนมัติทุกวัน เวลา 19:00 UTC = 02:00 น.
+# เวลาไทย (ช่วงเวลาที่คนใช้งานน้อยที่สุด) — ซ่อนงานที่ปิดมาเกิน 3 วันแล้ว
+# (CHAT_AUTO_DELETE_AFTER_DAYS ใน src/index.js) พร้อมลบห้องแชทของงานนั้นทิ้ง
+[triggers]
+crons = ["0 19 * * *"]
+
 # Secrets ที่ต้องตั้งด้วย `npx wrangler secret put <ชื่อ>` (ไม่ใส่ค่าจริงในไฟล์นี้):
 #   ONESIGNAL_REST_API_KEY   -> คีย์ OneSignal (ต้องหมุนใหม่ เพราะคีย์เก่ายังฝังอยู่ในเว็บ)
 #   APP_SHARED_SECRET        -> secret กันแอปนอกยิง endpoint เล่น (มีอยู่แล้ว)

@@ -7,6 +7,7 @@ import 'package:after_sales/screens/customer/customer_job_detail.dart';
 import 'package:after_sales/screens/customer/history_customer.dart';
 import 'package:after_sales/services.dart' as db;
 import 'package:after_sales/utils/firebase_number.dart';
+import 'package:after_sales/widgets.dart' show formatNotificationDateTime;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -247,6 +248,13 @@ enum FilterTab {
   // ให้ตรงกับที่แอดมิน/เว็บมี (ดู RepairStatus.traveling ใน
   // assign_repair_formdetail.dart และ JOB_STATUS_TABS ฝั่งเว็บ)
   traveling,
+  // 🆕 [ใหม่] เพิ่มแท็บ "เกินกำหนดเวลา" ตามที่ขอ — เดิม TicketStatus.overdue
+  // มีอยู่แล้วและคำนวณ/แสดงสีถูกต้องในการ์ด (getEffectiveRepairStatus() ใน
+  // services.dart) แต่ไม่มีแท็บให้กดกรองดูเฉพาะงานที่เลยวันนัดแล้ว ทำให้ช่าง/
+  // ลูกค้าต้องไล่หาเองในแท็บ "ทั้งหมด" — ใช้แพทเทิร์นเดียวกับแท็บ issue/traveling
+  // ด้านบน enum นี้ใช้ร่วมกันระหว่างหน้าลูกค้า (history_customer.dart) กับหน้า
+  // ช่าง (joblist_technician.dart) จึงจะไปโผล่ทั้ง 2 หน้าโดยอัตโนมัติ
+  overdue,
 }
 
 extension FilterTabX on FilterTab {
@@ -273,6 +281,8 @@ extension FilterTabX on FilterTab {
         return 'มีปัญหา';
       case FilterTab.traveling:
         return 'กำลังเดินทาง';
+      case FilterTab.overdue:
+        return 'เกินกำหนดเวลา';
     }
   }
 
@@ -303,6 +313,8 @@ extension FilterTabX on FilterTab {
         return status == TicketStatus.issue;
       case FilterTab.traveling:
         return status == TicketStatus.traveling;
+      case FilterTab.overdue:
+        return status == TicketStatus.overdue;
     }
   }
 }
@@ -424,8 +436,13 @@ class _RepairListPageState extends State<RepairListPage> {
             // _CustomerFilterHeader ของหน้านี้เองแทน (แพทเทิร์นเดียวกับที่
             // repair_list_admin.dart ใช้ _AdminFilterHeader ของตัวเองเพื่อเลี่ยงปัญหา
             // เดียวกันนี้)
+            // 🐛 [แก้บัค] เดิม totalTickets ใช้ _tickets.length (นับรวมทุกสถานะ
+            // ไม่กรองตามแท็บ) ทำให้ตัวเลขหัวข้อ ("X รายการทั้งหมด") ไม่ตรงกับ
+            // จำนวนการ์ดที่เห็นจริงเวลาลูกค้ากดเลือกแท็บอื่นที่ไม่ใช่ "ทั้งหมด"
+            // — เจอบั๊กเดียวกันที่ joblist_technician.dart (หน้าช่าง) ก่อนหน้านี้
+            // เปลี่ยนมาใช้ allFiltered.length (กรองตามแท็บ+คำค้นหาแล้ว) ให้ตรง
             _CustomerFilterHeader(
-              totalTickets: _tickets.length,
+              totalTickets: allFiltered.length,
               selectedTab: _selectedTab,
               onBack: widget.onBack,
               onTabChanged: (tab) {
@@ -688,7 +705,17 @@ class _TicketCard extends StatelessWidget {
                         fontFamily: AppStyles.fontFamily,
                       ),
                     ),
-                    Text(ticket.date, style: AppStyles.historyCardSubtitle),
+                    // 🆕 [ใหม่] งานที่เสร็จแล้วโชว์ "วันที่เสร็จสิ้น" จริงแทน
+                    // ticket.date (ซึ่งเป็นวันนัดหมายเดิม ไม่ใช่วันที่เสร็จจริง)
+                    // — ใช้ completedAt ที่ Ticket.fromMap() คำนวณไว้แล้วจาก
+                    // report_submitted_at/updated_at (ใช้แพทเทิร์นเดียวกับหน้าช่าง)
+                    Text(
+                      ticket.status == TicketStatus.done &&
+                              ticket.completedAt != null
+                          ? 'เสร็จสิ้นเมื่อ ${formatNotificationDateTime(ticket.completedAt!.toIso8601String())}'
+                          : ticket.date,
+                      style: AppStyles.historyCardSubtitle,
+                    ),
                   ],
                 ),
               ),

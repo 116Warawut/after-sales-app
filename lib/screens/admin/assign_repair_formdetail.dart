@@ -1259,6 +1259,14 @@ class _JobInfoCard extends StatelessWidget {
 
           _InfoRow(label: 'ที่อยู่', value: job.address),
           _InfoRow(label: 'วัน-เวลานัดซ่อม', value: displayDate),
+          // 🆕 [ใหม่] โชว์วันที่งานเสร็จสิ้นจริงในการ์ดข้อมูลงานด้วย (เดิมมีแค่
+          // "ส่งรายงานเมื่อ" ในการ์ดรายงานจากช่างด้านล่างของหน้าเดียวกัน ซึ่งอยู่
+          // ไกลจากข้อมูลงานหลัก) — เส้นทางเดียวกับหน้าลูกค้า/ช่าง/ลิสต์แอดมิน
+          if (job.status == RepairStatus.completed && job.reportSubmittedAt != null)
+            _InfoRow(
+              label: 'วันที่เสร็จสิ้น',
+              value: formatNotificationDateTime(job.reportSubmittedAt),
+            ),
           const SizedBox(height: 14),
           const Text(
             'รูปภาพประกอบ (แตะเพื่อขยาย)',

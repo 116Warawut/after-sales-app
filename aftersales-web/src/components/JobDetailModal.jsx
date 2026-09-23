@@ -22,6 +22,7 @@ import {
   displayStatus,
   extractSeverity,
   displayStoredDate,
+  formatReportDateTime,
   extractRating,
   parseThaiDate,
   compareAppointmentDate,
@@ -565,6 +566,12 @@ function TechnicianAssignBox({ job, technicians, currentTech }) {
                 {assignedTime ? ` เวลา ${assignedTime} น.` : ""}
               </p>
             ) : null}
+            {/* 🆕 [ใหม่] เส้นทางเดียวกับที่เพิ่มในหัวข้อโมดัลด้านบน */}
+            {isDoneStatus(job.status) && job.report_submitted_at ? (
+              <p>
+                <span className="text-slate-400">วันที่เสร็จสิ้น:</span> {formatReportDateTime(job.report_submitted_at)}
+              </p>
+            ) : null}
             <p><span className="text-slate-400">ยานพาหนะ:</span> {currentTech?.vehicle || "-"}</p>
           </div>
 
@@ -828,6 +835,14 @@ export default function JobDetailModal({ job: jobProp, machines: machinesProp, o
                 วันนัดหมาย: {displayStoredDate(job.date)}
                 {headerTime ? ` เวลา ${headerTime} น.` : ""}
               </p>
+              {/* 🆕 [ใหม่] โชว์วันที่เสร็จสิ้นจริงต่อจากวันนัดหมาย เฉพาะงานที่
+                  ปิดแล้ว — ใช้ report_submitted_at เส้นทางเดียวกับฝั่งแอปมือถือ
+                  (ดู completedAt ใน history_customer.dart / CustomerJobInfo) */}
+              {isDoneStatus(job.status) && job.report_submitted_at ? (
+                <p className="text-xs text-emerald-600 mt-0.5">
+                  วันที่เสร็จสิ้น: {formatReportDateTime(job.report_submitted_at)}
+                </p>
+              ) : null}
             </div>
           </div>
           <button

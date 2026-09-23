@@ -2,6 +2,106 @@ import bcrypt from "bcryptjs";
 import { rtdbGet, rtdbPatch } from "./rtdb.js";
 import { mintFirebaseCustomToken } from "./googleAuth.js";
 
+// ---------------------------------------------------------------------------
+// ⏰ [ใหม่] ทำความสะอาดห้องแชทของงานที่ปิดแล้ว (สถานะมีคำว่า "เสร็จ" — ครอบคลุม
+// ทั้ง 'เสร็จแล้ว' และ 'เสร็จสิ้น') เกิน CHAT_AUTO_DELETE_AFTER_DAYS วัน
+//
+// ตามที่ตกลงกัน: "ลบ" ในที่นี้คือลบเฉพาะห้องแชท (chat_messages +
+// chat_read_status) ของงานนั้นทิ้งจริง แต่ "ไม่" ลบ record งานซ่อมทิ้ง —
+// เพราะงานที่เสร็จแล้วผูกกับข้อมูลใบแจ้งหนี้/การชำระเงิน (invoice_no,
+// invoice_items, bill_id, is_paid ฯลฯ) ถ้าลบทิ้งจริงข้อมูลบัญชีจะหายถาวรไปด้วย
+// จึงใช้วิธี "ซ่อน" งานนั้นแทน (ตั้ง field hidden: true) ให้เห็นได้เฉพาะแอดมิน
+// เท่านั้น (ฝั่ง Flutter: getRepairsByCustomer/getRepairsByTechnician กรอง
+// hidden ออกแล้ว ส่วน getAllRepairs() ของแอดมินไม่กรอง ยังเห็นได้ปกติ)
+//
+// รันจริงฝั่งเซิร์ฟเวอร์ผ่าน Cron Trigger ของ Cloudflare Worker (ดู
+// wrangler.toml [triggers]) ไม่ใช่ฝั่ง client เพราะต้องทำงานแม้ไม่มีใครเปิดแอป
+// เลยก็ตาม — ตรงตามที่ขอ (รันตามเวลาจริงฝั่งเซิร์ฟเวอร์)
+// ---------------------------------------------------------------------------
+const CHAT_AUTO_DELETE_AFTER_DAYS = 3;
+
+function repairIdOf(repairKey, repair) {
+  // งาน id จริงที่ chat_messages.repair_id / chat_read_status ใช้อ้างอิง คือ
+  // เลขล้วนจากฟิลด์ 'id' ของ record หรือถ้าไม่มีให้ตัด prefix 'k' ออกจากคีย์
+  // Firebase เอง (เช่น 'k58' -> '58') ให้ตรงกับ resolveRecordId() ฝั่ง Flutter
+  // (utils/firebase_number.dart) เป๊ะ ๆ
+  if (repair?.id !== undefined && repair?.id !== null) {
+    return repair.id.toString();
+  }
+  return repairKey.replace(/^[kK]/, "");
+}
+
+export async function runChatCleanup(env) {
+  const nowMs = Date.now();
+  const thresholdMs = CHAT_AUTO_DELETE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+
+  const [repairs, chatMessages, chatReadStatus] = await Promise.all([
+    rtdbGet(env, "repairs"),
+    rtdbGet(env, "chat_messages"),
+    rtdbGet(env, "chat_read_status"),
+  ]);
+
+  const result = { checkedRepairs: 0, hiddenRepairs: 0, deletedMessages: 0, deletedReadStatus: 0 };
+  if (!repairs) return result;
+  result.checkedRepairs = Object.keys(repairs).length;
+
+  const updates = {};
+
+  for (const [repairKey, repair] of Object.entries(repairs)) {
+    if (!repair) continue;
+    if (repair.hidden === true) continue; // ซ่อนไปแล้วรอบก่อน ข้าม
+
+    const status = (repair.status ?? "").toString();
+    if (!status.includes("เสร็จ")) continue;
+
+    // 🕒 เวลาปิดงานจริง — ใช้ report_submitted_at เป็นหลัก (ตั้งตอนช่างส่ง
+    // รายงานซ่อมพร้อมเปลี่ยนสถานะเป็น 'เสร็จแล้ว' จุดเดียว — ดู
+    // submitRepairReport() ใน services.dart ฝั่ง Flutter) ถ้าไม่มี (ข้อมูลเก่า
+    // ก่อนมีฟิลด์นี้) fallback ไปที่ updated_at แทน — เส้นทางเดียวกับที่
+    // Ticket.fromMap() ใน history_customer.dart ใช้คำนวณ completedAt
+    const closedAtStr = repair.report_submitted_at ?? repair.updated_at;
+    if (!closedAtStr) continue;
+    const closedAtMs = Date.parse(closedAtStr);
+    if (Number.isNaN(closedAtMs)) continue;
+
+    if (nowMs - closedAtMs < thresholdMs) continue;
+
+    // ✅ เข้าเงื่อนไข: ปิดงานมาเกิน 3 วันแล้ว -> ซ่อนงาน + ลบห้องแชท
+    updates[`repairs/${repairKey}/hidden`] = true;
+    updates[`repairs/${repairKey}/hidden_at`] = new Date(nowMs).toISOString();
+    result.hiddenRepairs++;
+
+    const repairId = repairIdOf(repairKey, repair);
+
+    if (chatMessages) {
+      for (const [msgKey, msg] of Object.entries(chatMessages)) {
+        if (msg?.repair_id?.toString() === repairId) {
+          updates[`chat_messages/${msgKey}`] = null;
+          result.deletedMessages++;
+        }
+      }
+    }
+    if (chatReadStatus) {
+      const prefix = `${repairId}_`;
+      for (const key of Object.keys(chatReadStatus)) {
+        if (key.startsWith(prefix)) {
+          updates[`chat_read_status/${key}`] = null;
+          result.deletedReadStatus++;
+        }
+      }
+    }
+  }
+
+  // multi-location update จุดเดียวจบ (root path ว่าง '') — ปลอดภัยกว่ายิงทีละ
+  // path เพราะถ้ามีปัญหาเน็ตหลุดกลางทาง จะไม่มีสถานะครึ่ง ๆ กลาง ๆ (บาง path
+  // อัปเดตแล้วบาง path ยังไม่ได้อัปเดต) ของ "งานเดียวกัน"
+  if (Object.keys(updates).length > 0) {
+    await rtdbPatch(env, "", updates);
+  }
+
+  return result;
+}
+
 // ลำดับการค้นหาเดียวกับ _findAccountByUsernameWithPassword ฝั่งแอป
 // (customers -> technicians -> admins)
 const ROLE_TABLES = [
@@ -163,6 +263,18 @@ export default {
       // 🔐 0. กรณี login (ใหม่) — ตรวจรหัสผ่านจริง + ออก Firebase Custom Token
       if (payload.type === 'LOGIN') {
         return withCors(await handleLogin(payload, env));
+      }
+
+      // ⏰ 0.5 [ใหม่] ทริกเกอร์ runChatCleanup() ด้วยมือผ่าน HTTP (สำหรับทดสอบ
+      // เอง โดยไม่ต้องรอ cron รอบถัดไป) — ใช้ Authorization secret เดียวกับ
+      // endpoint อื่นทั้งหมด (เช็คผ่านไปแล้วก่อนถึงจุดนี้) รอบจริงยังรันอัตโนมัติ
+      // ทุกวันผ่าน Cron Trigger ตามปกติ (ดู scheduled() ด้านล่างของไฟล์นี้)
+      if (payload.type === 'RUN_CHAT_CLEANUP') {
+        const result = await runChatCleanup(env);
+        return withCors(new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }));
       }
 
       // 📧 1. กรณีส่ง Email OTP ผ่าน SendGrid (Single Sender Verification)
@@ -349,5 +461,15 @@ export default {
     } catch (err) {
       return withCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }));
     }
+  },
+
+  // ⏰ [ใหม่] เรียกอัตโนมัติตามตาราง Cron Trigger ใน wrangler.toml ([triggers]
+  // crons) — ไม่ต้องมีใครเปิดแอปหรือยิง HTTP request ใด ๆ ก็ทำงานเอง
+  // ctx.waitUntil() กันไม่ให้ Worker หยุดทำงานก่อนที่ Promise จะเสร็จ (พฤติกรรม
+  // มาตรฐานของ Cloudflare Worker สำหรับงานเบื้องหลังที่ไม่มี response ให้รอ)
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      runChatCleanup(env).catch((e) => console.error('runChatCleanup failed', e))
+    );
   },
 };

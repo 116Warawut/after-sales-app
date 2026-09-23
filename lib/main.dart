@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:after_sales/screens/first.dart';
 import 'package:after_sales/screens/customer/home_customer.dart';
@@ -84,25 +85,60 @@ void main() async {
   try {
     final saved = await SessionStorage.load();
     if (saved != null) {
-      Map<String, dynamic>? savedUserData;
-      if (saved.role.toUpperCase() == 'ADMIN') {
-        savedUserData =
-            await db.DatabaseHelper.instance.getAdminProfile(saved.username);
+      // 🛡️ [แก้ไข] เดิมอ่านค่า session ที่บันทึกไว้เอง (SessionStorage/
+      // SharedPreferences) แล้วพาเข้าหน้า Home ทันที โดยไม่เช็คเลยว่า Firebase
+      // Auth (ที่ auth.uid ผูกกับ Custom Token ตอน login ผ่าน AuthApiService)
+      // ยังมีสถานะล็อกอินค้างอยู่จริงหรือเปล่า — SessionStorage กับ Firebase
+      // Auth เป็นคนละระบบ persist กันคนละชั้น ถ้า Firebase Auth หลุดไปแล้ว
+      // (เช่น token/refresh token หาย) แต่ SessionStorage ยังมีอยู่ แอปจะพา
+      // เข้า Home ทั้งที่ auth.uid เป็น null จริง ๆ พอไปเรียกฟังก์ชันที่ต้องใช้
+      // สิทธิ์ auth != null ตาม Database Rules (เช่น updateTechnicianLocation
+      // ในหน้า customer_tracking.dart "ตำแหน่งลูกค้า") จะโดน
+      // [firebase_database/permission-denied] ทันทีแบบงงๆ ทั้งที่แอปคิดว่า
+      // ตัวเองล็อกอินอยู่
+      //
+      // แก้โดยรอเช็คสถานะ Firebase Auth จริงก่อน (authStateChanges ตัวแรก
+      // แบบมี timeout กันค้าง เผื่อ Firebase Auth ยังคืนค่าสถานะที่ persist
+      // ไว้ไม่เสร็จตอนเพิ่งเปิดแอป) ถ้าไม่มี currentUser จริง ให้ถือว่า
+      // session หมดอายุ เคลียร์ SessionStorage แล้วพากลับไปหน้า Login แทนที่
+      // จะพาเข้า Home ด้วย session ที่ใช้งานจริงไม่ได้แล้ว
+      User? firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser == null) {
+        try {
+          firebaseUser = await FirebaseAuth.instance
+              .authStateChanges()
+              .first
+              .timeout(const Duration(seconds: 3));
+        } catch (_) {
+          firebaseUser = FirebaseAuth.instance.currentUser;
+        }
       }
-      db.Session.signIn(saved.username, saved.role, userData: savedUserData);
-      PushNotificationService.linkUser(saved.username);
-      setupIncomingCallListener(saved.username);
 
-      switch (saved.role) {
-        case 'ADMIN':
-          initialHome = const HomeAdmin();
-          break;
-        case 'TECHNICIAN':
-          initialHome = const HomeTechnician();
-          break;
-        case 'CUSTOMER':
-          initialHome = const HomeCustomer();
-          break;
+      if (firebaseUser == null) {
+        debugPrint(
+            'Auto-login ยกเลิก: SessionStorage มีข้อมูลแต่ Firebase Auth ไม่มี currentUser (session หมดอายุ)');
+        await SessionStorage.clear();
+      } else {
+        Map<String, dynamic>? savedUserData;
+        if (saved.role.toUpperCase() == 'ADMIN') {
+          savedUserData =
+              await db.DatabaseHelper.instance.getAdminProfile(saved.username);
+        }
+        db.Session.signIn(saved.username, saved.role, userData: savedUserData);
+        PushNotificationService.linkUser(saved.username);
+        setupIncomingCallListener(saved.username);
+
+        switch (saved.role) {
+          case 'ADMIN':
+            initialHome = const HomeAdmin();
+            break;
+          case 'TECHNICIAN':
+            initialHome = const HomeTechnician();
+            break;
+          case 'CUSTOMER':
+            initialHome = const HomeCustomer();
+            break;
+        }
       }
     }
   } catch (e) {

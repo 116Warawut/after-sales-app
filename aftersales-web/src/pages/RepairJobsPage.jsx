@@ -10,6 +10,7 @@ import {
   getEffectiveRepairStatus,
   isDoneStatus,
   displayStoredDate,
+  formatReportDateTime,
 } from "../shared/constants";
 import useDbList from "../hooks/useDbList";
 import useWebSettings from "../hooks/useWebSettings";
@@ -562,7 +563,17 @@ export default function RepairJobsPage({ initialTab, initialQuery, onNavigate })
                             <span className="text-xs text-slate-400">-</span>
                           )}
                         </td>
-                        <td className="py-2.5 text-slate-500">{displayStoredDate(j.date)}</td>
+                        <td className="py-2.5 text-slate-500">
+                          <div>{displayStoredDate(j.date)}</div>
+                          {/* 🆕 [ใหม่] โชว์วันที่เสร็จสิ้นจริงต่อท้ายวันนัด
+                              เฉพาะงานที่ปิดแล้ว — แพทเทิร์นเดียวกับที่ column
+                              "เครื่องจักร" โชว์ S/N ต่อท้ายชื่อเครื่องด้านบน */}
+                          {isDoneStatus(effStatus) && j.report_submitted_at ? (
+                            <div className="text-[11px] text-emerald-600">
+                              เสร็จ {formatReportDateTime(j.report_submitted_at)}
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="py-2.5 text-slate-500">{cleanTime ? `${cleanTime} น.` : "-"}</td>
                         <td className="py-2.5">
                           <span

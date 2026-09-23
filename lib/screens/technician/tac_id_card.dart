@@ -150,21 +150,35 @@ class _IdCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: hasPhoto
-                ? LocalOrNetworkImage(
-                    path: employee.photoUrl!,
-                    height: 214,
-                    fit: BoxFit.cover,
-                  )
-                : Container(
-                    height: 214,
-                    color: AppColors.accentIndigo,
-                    alignment: Alignment.center,
-                    child: const Icon(Icons.person,
-                        size: 64, color: Colors.white70),
-                  ),
+          // 🐛 [แก้บัค] เดิมกรอบรูปสูงคงที่ 214 แต่กว้างเต็มการ์ด (เพราะ Column
+          // parent ใช้ CrossAxisAlignment.stretch) กลายเป็นกรอบแนวนอน (กว้าง >
+          // สูง) ทั้งที่รูปถ่ายบัตรพนักงานเป็นภาพคนแนวตั้ง (สูง > กว้าง) พอ
+          // ClipRRect+BoxFit.cover บีบภาพแนวตั้งลงในกรอบแนวนอน เลยครอบตัด
+          // เหลือแค่ช่วงหน้า/บ่าบนสุด เห็นแค่ท่อนบนของศีรษะ ไม่ใช่รูปครึ่งตัว
+          // ตามที่ควรเป็น — เปลี่ยนกรอบให้เป็นแนวตั้งจริง (สัดส่วน 3:4 แบบรูป
+          // ติดบัตรทั่วไป) และไม่กว้างเต็มการ์ด (จำกัดความกว้างไว้ที่ 160 แล้ว
+          // จัดกึ่งกลาง) ให้ดูเป็นกรอบรูปติดบัตรจริง ๆ แทนแบนเนอร์แนวนอน
+          Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 160,
+                child: AspectRatio(
+                  aspectRatio: 3 / 4,
+                  child: hasPhoto
+                      ? LocalOrNetworkImage(
+                          path: employee.photoUrl!,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          color: AppColors.accentIndigo,
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.person,
+                              size: 64, color: Colors.white70),
+                        ),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 20),
           Text(

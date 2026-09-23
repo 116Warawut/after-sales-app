@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:after_sales/app_styles.dart';
 import 'package:after_sales/services.dart';
 //import 'package:after_sales/widgets.dart';
+import 'package:after_sales/widgets.dart' show formatNotificationDateTime;
 
 import 'package:after_sales/screens/admin/assign_repair_formdetail.dart';
 import 'package:after_sales/screens/shared/job_detail_ui.dart';
@@ -659,6 +660,9 @@ class RepairListItem {
   // ยกเลิก — ก็อปตรรกะมาจากหน้าแรกแอดมิน (home_admin.dart _loadSummary) ตรง ๆ
   // ห้ามแก้ไขให้ต่างกัน ไม่งั้นตัวเลข "เกินกำหนด" หน้าแรกกับตัวกรองหน้านี้จะไม่ตรงกัน
   final bool isOverdue;
+  // 🆕 [ใหม่] วันที่ปิดงานจริง — เส้นทางเดียวกับ Ticket.completedAt ใน
+  // history_customer.dart (report_submitted_at เป็นหลัก fallback updated_at)
+  final String? completedAt;
 
   const RepairListItem({
     required this.id,
@@ -673,6 +677,7 @@ class RepairListItem {
     required this.location,
     this.isUrgent = false,
     this.isOverdue = false,
+    this.completedAt,
   });
 
   factory RepairListItem.fromMap(Map<String, dynamic> map) {
@@ -709,6 +714,8 @@ class RepairListItem {
       location: (map['location']?.toString()) ?? '-',
       isUrgent: isSevere || isAdminUrgent,
       isOverdue: isOverdue,
+      completedAt: (map['report_submitted_at'] ?? map['updated_at'])
+          ?.toString(),
     );
   }
 }
@@ -921,7 +928,16 @@ class _RepairCard extends StatelessWidget {
                             fontFamily: AppStyles.fontFamily,
                           ),
                         ),
-                        Text(item.date, style: AppStyles.historyCardSubtitle),
+                        // 🆕 [ใหม่] งานที่เสร็จแล้วโชว์ "วันที่เสร็จสิ้น" จริงแทน
+                        // item.date (ซึ่งเป็นวันนัด/วันสร้างงาน ไม่ใช่วันที่
+                        // เสร็จจริง) — เส้นทางเดียวกับหน้าลูกค้า/ช่าง
+                        Text(
+                          item.status == RepairStatus.done &&
+                                  item.completedAt != null
+                              ? 'เสร็จสิ้นเมื่อ ${formatNotificationDateTime(item.completedAt)}'
+                              : item.date,
+                          style: AppStyles.historyCardSubtitle,
+                        ),
                       ],
                     ),
                   ),
